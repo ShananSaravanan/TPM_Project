@@ -1,0 +1,38 @@
+# telemetry_server.py
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+from sqlalchemy import create_engine
+import uvicorn
+
+# Initialize app
+app = FastAPI()
+
+# CORS for frontend (optional but helpful for dashboard)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# PostgreSQL connection
+db_config = {
+    'host': 'localhost',
+    'port': '5433',
+    'database': 'AzureTPMDB',
+    'user': 'postgres',
+    'password': 'root'
+}
+conn_str = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+engine = create_engine(conn_str)
+
+@app.post("/telemetry")
+async def receive_telemetry(request: Request):
+    data = await request.json()
+    df = pd.DataFrame([data])
+    df.to_sql("telemetry", engine, if_exists="append", index=False)
+    return {"status": "success"}
+
+if __name__ == "__main__":
+    uvicorn.run("telemetry_server:app", host="0.0.0.0", port=8000, reload=True)
