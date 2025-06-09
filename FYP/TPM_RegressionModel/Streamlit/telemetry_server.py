@@ -4,9 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from sqlalchemy import create_engine
 import uvicorn
+import logging
 
-# Initialize app
+# Initialize app and logging
 app = FastAPI()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # CORS for frontend (optional but helpful for dashboard)
 app.add_middleware(
@@ -29,10 +32,18 @@ engine = create_engine(conn_str)
 
 @app.post("/telemetry")
 async def receive_telemetry(request: Request):
-    data = await request.json()
-    df = pd.DataFrame([data])
-    df.to_sql("telemetry", engine, if_exists="append", index=False)
-    return {"status": "success"}
+    try:
+        data = await request.json()
+        logger.info(f"Received data: {data}")
+        df = pd.DataFrame([data])
+        # Ensure only expected columns are inserted
+        expected_columns = ["machineid", "datetime", "volt", "rotate", "pressure", "vibration"]
+        df = df[expected_columns]
+        df.to_sql("telemetry", engine, if_exists="append", index=False)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error processing telemetry: {e}")
+        return {"status": "error", "message": str(e)}, 500
 
 if __name__ == "__main__":
     uvicorn.run("telemetry_server:app", host="0.0.0.0", port=8000, reload=True)
