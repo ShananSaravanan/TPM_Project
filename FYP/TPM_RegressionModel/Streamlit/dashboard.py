@@ -3,29 +3,35 @@ import pandas as pd
 import time
 from sqlalchemy import create_engine
 from sqlalchemy.sql import text
+import requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import re
+import streamlit.components.v1 as components
 
-# ---------------------------
+# --------------------------- 
 # 🎛 Page & DB Setup
-# ---------------------------
+# --------------------------- 
 st.set_page_config(page_title="Predictive Maintenance Dashboard", layout="wide")
 st.title("🛠️ Predictive Maintenance Dashboard")
 
 engine = create_engine("postgresql://postgres:root@localhost:5433/AzureTPMDB")
 
-# ---------------------------
+# --------------------------- 
 # 🔧 Machine Selector
-# ---------------------------
+# --------------------------- 
 machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
 selected_machine = st.selectbox("🔧 Select Machine", machine_ids)
 
-# ---------------------------
+# --------------------------- 
 # 📊 Live Graph Tabs
-# ---------------------------
+# --------------------------- 
 tab1, tab2, tab3 = st.tabs(["🔋 Telemetry", "⏳ RUL per Machine", "📉 All Machines RUL Overview"])
 
-# ---------------------------
+# --------------------------- 
 # 🔋 Tab 1 - Telemetry Viewer
-# ---------------------------
+# --------------------------- 
 with tab1:
     st.subheader(f"Telemetry Trend for Machine {selected_machine}")
 
@@ -54,11 +60,9 @@ with tab1:
             latest.set_index("datetime", inplace=True)
             tele_chart.add_rows(latest[[telemetry_option]])
 
-# ---------------------------
+# --------------------------- 
 # ⏳ Tab 2 - RUL Trend per Machine
-# ---------------------------
-import requests
-
+# --------------------------- 
 def send_telegram_alert(chat_id, message_text):
     bot_token = "7688190828:AAHF3QU70K5A8djY_d3RViMH-uA6Nsl6LL0"
     send_message_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -78,21 +82,13 @@ def send_telegram_alert(chat_id, message_text):
     except Exception as e:
         print(f"❌ Exception sending telegram alert: {e}")
 
-
-
-
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-# Function to send an email alert when RUL is below threshold
 def send_email_alert(machine_id, rul_value):
     sender_email = "shananmessi10@gmail.com"
     sender_password = "aswv tqus gstv wnfc"  # Replace with your actual app password
     recipient_email = "dreshya1423@gmail.com"  # Replace with your recipient email
 
     subject = f"⚠️ Maintenance Alert: Machine {machine_id} RUL Below 200"
-    body = f"Warning! The Remaining Useful Life (RUL) of Machine {machine_id} has dropped below 200.\n\nCurrent RUL: {rul_value}"
+    body = f"Warning! The Remaining Useful Life (RUL) of Machine {machine_id} has dropped below 200 hours.\n\nCurrent RUL: {rul_value} hours"
 
     msg = MIMEMultipart()
     msg['From'] = sender_email
@@ -112,78 +108,73 @@ def send_email_alert(machine_id, rul_value):
 with tab2:
     st.subheader(f"RUL Prediction Trend for Machine {selected_machine}")
 
-    rul_query = text("SELECT prediction_time, rul_pred FROM predictions WHERE machineid = :machine_id ORDER BY prediction_time")
-    rul_data = pd.read_sql(rul_query, engine, params={"machine_id": selected_machine})
-    rul_data["prediction_time"] = pd.to_datetime(rul_data["prediction_time"])
-    rul_data.set_index("prediction_time", inplace=True)
+    # Cache RUL data to reduce DB queries
+    @st.cache_data(ttl=60)  # Cache for 60 seconds
+    def get_rul_data(machine_id):
+        rul_query = text("SELECT prediction_time, rul_pred FROM predictions WHERE machineid = :machine_id ORDER BY prediction_time")
+        rul_data = pd.read_sql(rul_query, engine, params={"machine_id": machine_id})
+        rul_data["prediction_time"] = pd.to_datetime(rul_data["prediction_time"])
+        rul_data.set_index("prediction_time", inplace=True)
+        return rul_data
 
-    rul_chart = st.line_chart(rul_data[["rul_pred"]].tail(30))  # show last 30 RULs
+    rul_data = get_rul_data(selected_machine)
+    rul_chart = st.line_chart(rul_data[["rul_pred"]].tail(30))  # Show last 30 RULs
 
-    # Check if RUL goes below 200 and trigger an alert
-    latest_rul_value = rul_data["rul_pred"].iloc[-1]  # Get the most recent RUL value
+    # Check if RUL goes below threshold and trigger an alert
+    latest_rul_value = rul_data["rul_pred"].iloc[-1] if not rul_data.empty else float('inf')
+    alert_threshold = 200  # Adjusted threshold based on model context
 
-    if latest_rul_value < 310:
-        st.warning("⚠️ Warning! RUL is below 300! Maintenance is recommended.", icon="⚠️")
-        
-        # You can also send an email here as an option (see step 2 for email)
+    if latest_rul_value < alert_threshold:
+        st.warning(f"⚠️ Warning! RUL is below {alert_threshold} hours! Maintenance is recommended.", icon="⚠️")
         st.markdown("### 📨 Email Alert Sent for Low RUL!")
-        
-        # Trigger the email function (as shown in the next step)
         send_email_alert(selected_machine, latest_rul_value)
         chat_id = -1002671447415  # Your Telegram supergroup chat ID
         telegram_message = (
             f"⚠️ <b>Maintenance Alert</b>\n"
             f"Machine {selected_machine} RUL is low!\n"
-            f"Current RUL: {latest_rul_value}"
-            )
+            f"Current RUL: {latest_rul_value} hours"
+        )
         send_telegram_alert(chat_id, telegram_message)
+
     if st.button("▶️ Start RUL Stream"):
         for _ in range(100):
             time.sleep(10)
-            latest_rul_query = text("""
-                SELECT prediction_time, rul_pred 
-                FROM predictions 
-                WHERE machineid = :machine_id 
-                ORDER BY prediction_time DESC LIMIT 1
-            """)
-            latest_rul = pd.read_sql(latest_rul_query, engine, params={"machine_id": selected_machine})
-            latest_rul["prediction_time"] = pd.to_datetime(latest_rul["prediction_time"])
-            latest_rul.set_index("prediction_time", inplace=True)
+            latest_rul = get_rul_data(selected_machine).tail(1)
+            latest_rul_value = latest_rul["rul_pred"].iloc[-1] if not latest_rul.empty else float('inf')
             rul_chart.add_rows(latest_rul[["rul_pred"]])
-            
-            # Check RUL again for each new row
-            latest_rul_value = latest_rul["rul_pred"].iloc[-1]
-            if latest_rul_value < 200:
-                st.warning("⚠️ Warning! RUL is below 200! Maintenance is recommended.", icon="⚠️")
-                send_email_alert(selected_machine, latest_rul_value)
 
-                chat_id = -1002671447415  # Your Telegram supergroup chat ID
+            if latest_rul_value < alert_threshold:
+                st.warning(f"⚠️ Warning! RUL is below {alert_threshold} hours! Maintenance is recommended.", icon="⚠️")
+                send_email_alert(selected_machine, latest_rul_value)
+                chat_id = -1002671447415
                 telegram_message = (
                     f"⚠️ <b>Maintenance Alert</b>\n"
                     f"Machine {selected_machine} RUL is low!\n"
-                    f"Current RUL: {latest_rul_value}"
-                    )
+                    f"Current RUL: {latest_rul_value} hours"
+                )
                 send_telegram_alert(chat_id, telegram_message)
 
-
-
-# ---------------------------
+# --------------------------- 
 # 📉 Tab 3 - Overview of All Machines
-# ---------------------------
+# --------------------------- 
 with tab3:
     st.subheader("Latest RUL for All Machines (Sorted by Lowest RUL)")
 
-    all_rul_query = """
-        SELECT * FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY machineid ORDER BY prediction_time DESC) as rn
-            FROM predictions
-        ) sub WHERE rn = 1
-        ORDER BY rul_pred ASC
-    """
-    latest_rul_all = pd.read_sql(all_rul_query, engine)
+    # Cache all RUL data
+    @st.cache_data(ttl=60)
+    def get_all_rul_data():
+        all_rul_query = """
+            SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY machineid ORDER BY prediction_time DESC) as rn
+                FROM predictions
+            ) sub WHERE rn = 1
+            ORDER BY rul_pred ASC
+        """
+        return pd.read_sql(all_rul_query, engine)
+
+    latest_rul_all = get_all_rul_data()
     st.dataframe(latest_rul_all[["machineid", "prediction_time", "rul_pred"]])
 
-    # Line chart: optional trend line across all machines (averaged)
     st.subheader("📈 Average RUL Trend (Optional)")
     avg_rul_query = """
         SELECT prediction_time, AVG(rul_pred) as avg_rul
@@ -196,11 +187,10 @@ with tab3:
     avg_rul_df.set_index("prediction_time", inplace=True)
     st.line_chart(avg_rul_df[["avg_rul"]])
 
-
-import streamlit as st
-import streamlit.components.v1 as components
+# --------------------------- 
+# 🤖 AI Chat Assistant
+# --------------------------- 
 from mistral_query import build_prompt, query_mistral
-import re
 
 # Session init
 if "chat_history" not in st.session_state:
@@ -257,15 +247,12 @@ function toggleChat() {
 </script>
 """, height=0)  # Zero height since it’s floating
 
-# Now, below, render actual chat input via Streamlit UI
+# Display chat input and history
 st.write("## AI Assistant Chatbox")
-
-# Display all messages
 for sender, msg in st.session_state.chat_history:
     align = "user" if sender == "user" else "assistant"
     with st.chat_message(align):
         st.markdown(msg)
-
 
 # Input
 user_input = st.chat_input("Type your question here")
@@ -274,17 +261,15 @@ def extract_machine_id(text):
     match = re.search(r'\b(?:machine\s*)?(\d{1,6})\b', text, re.IGNORECASE)
     return match.group(1) if match else None
 
-
-# Process user input immediately
+# Process user input
 if user_input:
     st.session_state.chat_history.append(("user", user_input))
     st.session_state.last_user_input = user_input  # Save to detect processing needed
-    st.rerun()  # Force rerun to show spinner + answer immediately
+    st.rerun()
 
-# Only process once after rerun
 if "last_user_input" in st.session_state:
     user_input = st.session_state.last_user_input
-    del st.session_state.last_user_input  # Ensure it's only used once
+    del st.session_state.last_user_input
 
     with st.spinner("🤖 Thinking..."):
         machine_id = extract_machine_id(user_input)
@@ -298,6 +283,4 @@ if "last_user_input" in st.session_state:
             answer = f"⚠️ Error: {e}"
 
     st.session_state.chat_history.append(("assistant", answer))
-    st.rerun()  # Trigger another rerun to render response
-
-
+    st.rerun()
