@@ -19,17 +19,29 @@ test_metadata = X_test[['datetime', 'machineid']]
 model_features = model.get_booster().feature_names
 X_test_features = X_test[model_features]
 
-# Predict on test set (log scale)
-y_pred_log = model.predict(X_test_features)
+# Predict on test set (sqrt scale)
+y_pred = model.predict(X_test_features)
+
+# Debug: Check predictions
+print("Predicted RUL (sqrt scale) Summary:")
+print(pd.Series(y_pred).describe())
+print("Actual RUL (sqrt scale) Summary:")
+print(pd.Series(y_test).describe())
 
 # Convert back to original scale
-y_pred = np.expm1(y_pred_log)
-y_test_orig = np.expm1(y_test)
+y_pred_orig = y_pred ** 2  # Reverse square root transformation
+y_test_orig = y_test ** 2
+
+# Debug: Check original scale values
+print("Predicted RUL (original scale) Summary:")
+print(pd.Series(y_pred_orig).describe())
+print("Actual RUL (original scale) Summary:")
+print(pd.Series(y_test_orig).describe())
 
 # Calculate metrics on original scale
-rmse = np.sqrt(mean_squared_error(y_test_orig, y_pred))
-mae = mean_absolute_error(y_test_orig, y_pred)
-r2 = r2_score(y_test_orig, y_pred)
+rmse = np.sqrt(mean_squared_error(y_test_orig, y_pred_orig))
+mae = mean_absolute_error(y_test_orig, y_pred_orig)
+r2 = r2_score(y_test_orig, y_pred_orig)
 
 print(f"Evaluation Metrics (Original Scale):")
 print(f"RMSE: {rmse:.2f} hours")
@@ -41,14 +53,14 @@ actual_vs_predicted = pd.DataFrame({
     'datetime': test_metadata['datetime'],
     'machineID': test_metadata['machineid'],
     'Actual_RUL': y_test_orig,
-    'Predicted_RUL': y_pred
+    'Predicted_RUL': y_pred_orig
 })
 actual_vs_predicted.to_csv('actual_vs_predicted.csv', index=False)
 print("✅ Saved 'actual_vs_predicted.csv' with datetime, machineID, actual and predicted RUL values (original scale).")
 
 # Plot predicted vs actual RUL (original scale)
 plt.figure(figsize=(8, 6))
-plt.scatter(y_test_orig, y_pred, alpha=0.5, color='blue')
+plt.scatter(y_test_orig, y_pred_orig, alpha=0.5, color='blue')
 plt.plot([y_test_orig.min(), y_test_orig.max()], [y_test_orig.min(), y_test_orig.max()], 'r--', lw=2)
 plt.xlabel('Actual RUL (hours)')
 plt.ylabel('Predicted RUL (hours)')
@@ -57,9 +69,9 @@ plt.grid(True)
 plt.show()
 
 # Plot residuals
-residuals = y_test_orig - y_pred
+residuals = y_test_orig - y_pred_orig
 plt.figure(figsize=(8, 6))
-plt.scatter(y_pred, residuals, alpha=0.5, color='green')
+plt.scatter(y_pred_orig, residuals, alpha=0.5, color='green')
 plt.axhline(y=0, color='r', linestyle='--', lw=2)
 plt.xlabel('Predicted RUL (hours)')
 plt.ylabel('Residuals (Actual - Predicted)')
@@ -88,7 +100,7 @@ plt.tight_layout()
 plt.show()
 
 # Check for outliers
-outliers = np.where((y_pred - y_test_orig).abs() > rmse * 2)[0]
+outliers = np.where((y_pred_orig - y_test_orig).abs() > rmse * 2)[0]
 if len(outliers) > 0:
     print(f"\nNumber of significant outliers (error > 2*RMSE): {len(outliers)}")
     print(f"Indices of outliers: {outliers}")
