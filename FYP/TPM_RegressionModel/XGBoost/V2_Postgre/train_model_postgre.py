@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 import xgboost as xgb
 import joblib
 from tqdm import tqdm
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
@@ -36,11 +37,17 @@ failures['datetime'] = pd.to_datetime(failures['datetime'])
 maint['datetime'] = pd.to_datetime(maint['datetime'])
 errors['datetime'] = pd.to_datetime(errors['datetime'])
 
-# Merge failure timestamps
-failure_timestamps = failures.groupby('machineid')['datetime'].max().reset_index()
-failure_timestamps.columns = ['machineid', 'last_failure']
-data = telemetry.merge(failure_timestamps, on='machineid', how='left')
-data = data.merge(machines, on='machineid', how='left')
+# ... (previous code unchanged until failure merge)
+
+# Merge failure timestamps (select earliest failure after telemetry datetime)
+def get_next_failure(row, failures):
+    future_failures = failures[(failures['machineid'] == row['machineid']) & (failures['datetime'] >= row['datetime'])]
+    if not future_failures.empty:
+        return future_failures['datetime'].min()
+    return pd.NaT
+
+data = telemetry.merge(machines, on='machineid', how='left')
+data['last_failure'] = data.apply(lambda row: get_next_failure(row, failures), axis=1)
 
 # Exclude machines with no failure data
 data = data.dropna(subset=['last_failure'])
@@ -65,10 +72,14 @@ data['RUL'] = (data['last_failure'] - data['datetime']).dt.total_seconds() / 360
 data = data[data['RUL'] <= 4000]  # Filter out RUL > 4000 hours
 data = data[data['RUL'] >= 0]  # Remove invalid RUL
 
-# Log transform RUL to reduce skewness
-data['RUL'] = np.log1p(data['RUL'])
+# Debug: Print RUL distribution
+print("RUL Distribution (hours):")
+print(data['RUL'].describe())
 
-# Normalize sensor features
+# Transform RUL: Square root
+data['RUL'] = np.sqrt(data['RUL'])
+
+# Normalize sensor features and new derived features
 scaler = StandardScaler()
 sensor_features = ['volt', 'rotate', 'pressure', 'vibration']
 data[sensor_features] = scaler.fit_transform(data[sensor_features])
@@ -80,8 +91,16 @@ data['volt_change'] = data.groupby('machineid')['volt'].diff().fillna(0)
 data['rotate_change'] = data.groupby('machineid')['rotate'].diff().fillna(0)
 data['pressure_change'] = data.groupby('machineid')['pressure'].diff().fillna(0)
 data['vibration_change'] = data.groupby('machineid')['vibration'].diff().fillna(0)
-data['volt_error_inter'] = data['volt_change'] * data['error_rate']  # Interaction term
+data['volt_error_inter'] = data['volt_change'] * data['error_rate']
 data['rotate_error_inter'] = data['rotate_change'] * data['error_rate']
+# New features
+data['sensor_volatility'] = data[sensor_features].std(axis=1)
+data['recent_error_count'] = data.groupby('machineid')['time_since_last_error'].transform(lambda x: (x < 24).sum())
+
+# Normalize new features
+new_features = ['sensor_degradation', 'error_rate', 'volt_change', 'rotate_change', 'pressure_change',
+                'vibration_change', 'volt_error_inter', 'rotate_error_inter', 'sensor_volatility', 'recent_error_count']
+data[new_features] = scaler.fit_transform(data[new_features])
 
 # SPC: Flag outliers
 for feature in sensor_features:
@@ -93,12 +112,19 @@ for feature in sensor_features:
 
 # Add rolling features with multiple windows
 for feature in sensor_features:
-    # Short-term window
+    # Very short-term window (6 hours)
+    data[f'{feature}_rolling_mean_6'] = data.groupby('machineid')[feature].rolling(window=6).mean().reset_index(level=0, drop=True)
+    data[f'{feature}_rolling_std_6'] = data.groupby('machineid')[feature].rolling(window=6).std().reset_index(level=0, drop=True)
+    # Short-term window (12 hours)
+    data[f'{feature}_rolling_mean_12'] = data.groupby('machineid')[feature].rolling(window=12).mean().reset_index(level=0, drop=True)
+    data[f'{feature}_rolling_std_12'] = data.groupby('machineid')[feature].rolling(window=12).std().reset_index(level=0, drop=True)
+    # Medium-term window (24 hours)
     data[f'{feature}_rolling_mean_24'] = data.groupby('machineid')[feature].rolling(window=24).mean().reset_index(level=0, drop=True)
     data[f'{feature}_rolling_std_24'] = data.groupby('machineid')[feature].rolling(window=24).std().reset_index(level=0, drop=True)
-    # Long-term window
-    data[f'{feature}_rolling_mean_72'] = data.groupby('machineid')[feature].rolling(window=72).mean().reset_index(level=0, drop=True)
-    data[f'{feature}_rolling_std_72'] = data.groupby('machineid')[feature].rolling(window=72).std().reset_index(level=0, drop=True)
+
+# Normalize rolling features
+rolling_features = [f'{feat}_rolling_{stat}_{win}' for feat in sensor_features for stat in ['mean', 'std'] for win in [6, 12, 24]]
+data[rolling_features] = scaler.fit_transform(data[rolling_features].fillna(0))
 
 # Encode model column
 data = pd.get_dummies(data, columns=['model'], prefix='model')
@@ -107,16 +133,13 @@ data = pd.get_dummies(data, columns=['model'], prefix='model')
 data = data.drop(columns=[f'{f}_mean' for f in sensor_features] + [f'{f}_std' for f in sensor_features])
 data = data.dropna()
 
-# ... (previous code unchanged until the test data saving section)
-
+# Prepare features and target
 features = ['volt', 'rotate', 'pressure', 'vibration', 'age', 'time_since_last_maint', 'no_maint',
             'error_count', 'time_since_last_error', 'no_error', 'sensor_degradation', 'error_rate',
             'volt_change', 'rotate_change', 'pressure_change', 'vibration_change', 'volt_error_inter',
-            'rotate_error_inter', 'volt_rolling_mean_24', 'rotate_rolling_mean_24', 'pressure_rolling_mean_24',
-            'vibration_rolling_mean_24', 'volt_rolling_std_24', 'rotate_rolling_std_24', 'pressure_rolling_std_24',
-            'vibration_rolling_std_24', 'volt_rolling_mean_72', 'rotate_rolling_mean_72', 'pressure_rolling_mean_72',
-            'vibration_rolling_mean_72', 'volt_rolling_std_72', 'rotate_rolling_std_72', 'pressure_rolling_std_72',
-            'vibration_rolling_std_72', 'volt_outlier', 'rotate_outlier', 'pressure_outlier', 'vibration_outlier'] + \
+            'rotate_error_inter', 'sensor_volatility', 'recent_error_count'] + \
+           rolling_features + \
+           ['volt_outlier', 'rotate_outlier', 'pressure_outlier', 'vibration_outlier'] + \
            [col for col in data.columns if col.startswith('model_')]
 target = 'RUL'
 
@@ -131,7 +154,7 @@ data = data.drop('RUL_bin', axis=1)
 
 # Save test data with datetime and machineID
 X_test.to_csv('X_test.csv', index=False)
-y_test_transformed = pd.DataFrame({'RUL': y_test})
+y_test_transformed = pd.DataFrame({'RUL': y_test})  # Save transformed (sqrt) RUL
 y_test_transformed.to_csv('y_test.csv', index=False)
 print("✅ X_test and y_test saved to 'X_test.csv' and 'y_test.csv' with datetime and machineID")
 
@@ -139,41 +162,52 @@ print("✅ X_test and y_test saved to 'X_test.csv' and 'y_test.csv' with datetim
 X_train_features = X_train[features]
 X_test_features = X_test[features]
 
-# Train final model with adjusted parameters using xgb.train
-dtrain = xgb.DMatrix(X_train_features, label=y_train)
-dtest = xgb.DMatrix(X_test_features, label=y_test)
-params = {
-    'objective': 'reg:squarederror',
-    'learning_rate': 0.15,
-    'max_depth': 5,
-    'subsample': 0.9,
-    'colsample_bytree': 0.8,
-    'reg_lambda': 0.5,
-    'reg_alpha': 0.1
+# Calculate sample weights (balanced with reduced emphasis on small RULs)
+weights = np.log1p(np.maximum(y_train, 1))  # Logarithmic scaling to balance weights
+weights = 1 / weights  # Inverse weighting
+weights = weights / weights.mean()  # Normalize
+
+# Debug: Check weights and predictions
+print("Sample Weights Summary:")
+print(pd.Series(weights).describe())
+
+# Grid Search for hyperparameter tuning
+param_grid = {
+    'learning_rate': [0.05, 0.1, 0.2],
+    'max_depth': [4, 5, 6],
+    'subsample': [0.7, 0.8, 0.9],
+    'colsample_bytree': [0.7, 0.8]
 }
-evals = [(dtrain, 'train'), (dtest, 'test')]
-booster = xgb.train(
-    params,
-    dtrain,
-    num_boost_round=150,
-    evals=evals,
-    early_stopping_rounds=10,
-    verbose_eval=False
-)
+model = xgb.XGBRegressor(reg_lambda=1.0, reg_alpha=0.5, min_child_weight=1)
+grid_search = GridSearchCV(model, param_grid, scoring='neg_mean_squared_error', cv=3, verbose=1)
+grid_search.fit(X_train_features, y_train)
+print("Best parameters:", grid_search.best_params_)
+final_model = grid_search.best_estimator_
 
-# Wrap trained model in XGBRegressor for compatibility
-final_model = xgb.XGBRegressor()
-final_model._Booster = booster
+# Evaluate model (on sqrt scale)
+y_pred = final_model.predict(X_test_features)
+y_pred = np.maximum(y_pred, 0)  # Enforce non-negative predictions
 
-# Evaluate model (on log scale)
-y_pred = final_model.predict(X_test_features)  # Use X_test_features instead of X_test
+# Debug: Check predictions
+print("Predicted RUL (sqrt scale) Summary:")
+print(pd.Series(y_pred).describe())
+print("Actual RUL (sqrt scale) Summary:")
+print(pd.Series(y_test).describe())
+
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 r2 = r2_score(y_test, y_pred)
-print(f"✅ Model trained and saved. RMSE (log scale): {rmse:.2f}, R² (log scale): {r2:.2f}")
+print(f"✅ Model trained and saved. RMSE (sqrt scale): {rmse:.2f}, R² (sqrt scale): {r2:.2f}")
 
 # Evaluate on original scale
-y_pred_orig = np.expm1(y_pred)
-y_test_orig = np.expm1(y_test)
+y_pred_orig = y_pred ** 2  # Reverse square root transformation
+y_test_orig = y_test ** 2
+
+# Debug: Check original scale values
+print("Predicted RUL (original scale) Summary:")
+print(pd.Series(y_pred_orig).describe())
+print("Actual RUL (original scale) Summary:")
+print(pd.Series(y_test_orig).describe())
+
 rmse_orig = np.sqrt(mean_squared_error(y_test_orig, y_pred_orig))
 r2_orig = r2_score(y_test_orig, y_pred_orig)
 print(f"✅ Model evaluated on original scale. RMSE: {rmse_orig:.2f} hours, R²: {r2_orig:.2f}")
@@ -186,12 +220,12 @@ xgb.plot_importance(final_model, max_num_features=10)
 plt.title('Feature Importance')
 plt.show()
 
-# Plot predicted vs actual (log scale)
+# Plot predicted vs actual (sqrt scale)
 plt.scatter(y_test, y_pred, alpha=0.5)
 plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-plt.xlabel('Actual Log(RUL + 1)')
-plt.ylabel('Predicted Log(RUL + 1)')
-plt.title('Predicted vs Actual RUL (Log Scale)')
+plt.xlabel('Actual Sqrt(RUL)')
+plt.ylabel('Predicted Sqrt(RUL)')
+plt.title('Predicted vs Actual RUL (Sqrt Scale)')
 plt.show()
 
 # Plot residuals
