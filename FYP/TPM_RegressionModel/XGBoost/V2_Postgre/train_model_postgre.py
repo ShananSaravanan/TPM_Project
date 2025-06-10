@@ -107,7 +107,8 @@ data = pd.get_dummies(data, columns=['model'], prefix='model')
 data = data.drop(columns=[f'{f}_mean' for f in sensor_features] + [f'{f}_std' for f in sensor_features])
 data = data.dropna()
 
-# Prepare features and target
+# ... (previous code unchanged until the test data saving section)
+
 features = ['volt', 'rotate', 'pressure', 'vibration', 'age', 'time_since_last_maint', 'no_maint',
             'error_count', 'time_since_last_error', 'no_error', 'sensor_degradation', 'error_rate',
             'volt_change', 'rotate_change', 'pressure_change', 'vibration_change', 'volt_error_inter',
@@ -119,7 +120,8 @@ features = ['volt', 'rotate', 'pressure', 'vibration', 'age', 'time_since_last_m
            [col for col in data.columns if col.startswith('model_')]
 target = 'RUL'
 
-X = data[features]
+# Include datetime and machineID in X for saving, but exclude from training features
+X = data[['datetime', 'machineid'] + features]
 y = data[target]
 
 # Stratified sampling based on RUL bins
@@ -127,15 +129,19 @@ data['RUL_bin'] = pd.qcut(data['RUL'], q=4, labels=False)
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=data.loc[X.index, 'RUL_bin'], shuffle=True)
 data = data.drop('RUL_bin', axis=1)
 
-# Save test data
+# Save test data with datetime and machineID
 X_test.to_csv('X_test.csv', index=False)
 y_test_transformed = pd.DataFrame({'RUL': y_test})
 y_test_transformed.to_csv('y_test.csv', index=False)
-print("✅ X_test and y_test saved to 'X_test.csv' and 'y_test.csv'")
+print("✅ X_test and y_test saved to 'X_test.csv' and 'y_test.csv' with datetime and machineID")
+
+# Select only model features for training and prediction
+X_train_features = X_train[features]
+X_test_features = X_test[features]
 
 # Train final model with adjusted parameters using xgb.train
-dtrain = xgb.DMatrix(X_train, label=y_train)
-dtest = xgb.DMatrix(X_test, label=y_test)
+dtrain = xgb.DMatrix(X_train_features, label=y_train)
+dtest = xgb.DMatrix(X_test_features, label=y_test)
 params = {
     'objective': 'reg:squarederror',
     'learning_rate': 0.15,
@@ -160,7 +166,7 @@ final_model = xgb.XGBRegressor()
 final_model._Booster = booster
 
 # Evaluate model (on log scale)
-y_pred = final_model.predict(X_test)
+y_pred = final_model.predict(X_test_features)  # Use X_test_features instead of X_test
 rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 r2 = r2_score(y_test, y_pred)
 print(f"✅ Model trained and saved. RMSE (log scale): {rmse:.2f}, R² (log scale): {r2:.2f}")
