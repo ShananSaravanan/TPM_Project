@@ -45,13 +45,17 @@ def compute_derived_features(data):
     for feature in ['volt', 'rotate', 'pressure', 'vibration']:
         data[feature + '_change'] = data.groupby('machineid')[feature].diff().fillna(0)
 
-    # Compute rolling features
+    # Compute rolling features for all required windows
     sensor_features = ['volt', 'rotate', 'pressure', 'vibration']
+    windows = [6, 12, 24, 72]
     for feature in sensor_features:
-        data[feature + '_rolling_mean_24'] = data.groupby('machineid')[feature].rolling(window=min(10, 24), min_periods=1).mean().reset_index(level=0, drop=True)
-        data[feature + '_rolling_std_24'] = data.groupby('machineid')[feature].rolling(window=min(10, 24), min_periods=1).std().reset_index(level=0, drop=True).fillna(0)
-        data[feature + '_rolling_mean_72'] = data.groupby('machineid')[feature].rolling(window=min(10, 72), min_periods=1).mean().reset_index(level=0, drop=True)
-        data[feature + '_rolling_std_72'] = data.groupby('machineid')[feature].rolling(window=min(10, 72), min_periods=1).std().reset_index(level=0, drop=True).fillna(0)
+        for window in windows:
+            data[feature + '_rolling_mean_' + str(window)] = data.groupby('machineid')[feature].rolling(window=min(10, window), min_periods=1).mean().reset_index(level=0, drop=True)
+            data[feature + '_rolling_std_' + str(window)] = data.groupby('machineid')[feature].rolling(window=min(10, window), min_periods=1).std().reset_index(level=0, drop=True).fillna(0)
+
+    # Compute sensor_volatility and recent_error_count
+    data['sensor_volatility'] = data[sensor_features].std(axis=1)
+    data['recent_error_count'] = data.groupby('machineid')['time_since_last_error'].transform(lambda x: (x < 24).sum())
 
     # Compute outliers (simplified SPC) with aligned indices and debugging
     for feature in sensor_features:

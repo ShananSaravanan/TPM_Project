@@ -36,7 +36,7 @@ def predict_rul(data: pd.DataFrame) -> pd.DataFrame:
     if 'rotate_error_inter' not in data_copy.columns and 'rotate_change' in data_copy.columns and 'error_rate' in data_copy.columns:
         data_copy['rotate_error_inter'] = data_copy['rotate_change'] * data_copy['error_rate']
 
-    # Add missing model columns with default value 0
+    # Add missing rolling features with zeros (to be computed by predict_live.py)
     for feature in required_features:
         if feature not in data_copy.columns:
             data_copy[feature] = 0
@@ -44,13 +44,12 @@ def predict_rul(data: pd.DataFrame) -> pd.DataFrame:
     # Align features with the model's expected order
     X = data_copy[feature_names]
 
-    # Predict RUL (log scale)
-    rul_pred_log = model.predict(X)
+    # Predict RUL (sqrt scale)
+    rul_pred_sqrt = model.predict(X)
 
     # Create a result DataFrame with original data and predictions
     result = data.copy()  # Preserve original data
-    result['rul_pred_log'] = rul_pred_log
-    result['rul_pred'] = np.expm1(rul_pred_log)  # Reverse log1p transformation
+    result['rul_pred'] = rul_pred_sqrt ** 2  # Reverse square root transformation to original scale
 
     # Return relevant columns
     return result[['machineid', 'datetime', 'rul_pred']]

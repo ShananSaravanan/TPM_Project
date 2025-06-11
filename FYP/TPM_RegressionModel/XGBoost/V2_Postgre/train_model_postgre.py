@@ -37,8 +37,6 @@ failures['datetime'] = pd.to_datetime(failures['datetime'])
 maint['datetime'] = pd.to_datetime(maint['datetime'])
 errors['datetime'] = pd.to_datetime(errors['datetime'])
 
-# ... (previous code unchanged until failure merge)
-
 # Merge failure timestamps (select earliest failure after telemetry datetime)
 def get_next_failure(row, failures):
     future_failures = failures[(failures['machineid'] == row['machineid']) & (failures['datetime'] >= row['datetime'])]
@@ -143,7 +141,7 @@ features = ['volt', 'rotate', 'pressure', 'vibration', 'age', 'time_since_last_m
            [col for col in data.columns if col.startswith('model_')]
 target = 'RUL'
 
-# Include datetime and machineID in X for saving, but exclude from training features
+# Include datetime and machineid in X for saving, but exclude from training features
 X = data[['datetime', 'machineid'] + features]
 y = data[target]
 
@@ -152,18 +150,18 @@ data['RUL_bin'] = pd.qcut(data['RUL'], q=4, labels=False)
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=data.loc[X.index, 'RUL_bin'], shuffle=True)
 data = data.drop('RUL_bin', axis=1)
 
-# Save test data with datetime and machineID
+# Save test data with datetime and machineid
 X_test.to_csv('X_test.csv', index=False)
 y_test_transformed = pd.DataFrame({'RUL': y_test})  # Save transformed (sqrt) RUL
 y_test_transformed.to_csv('y_test.csv', index=False)
-print("✅ X_test and y_test saved to 'X_test.csv' and 'y_test.csv' with datetime and machineID")
+print("✅ X_test and y_test saved to 'X_test.csv' and 'y_test.csv' with datetime and machineid")
 
 # Select only model features for training and prediction
 X_train_features = X_train[features]
 X_test_features = X_test[features]
 
-# Calculate sample weights (balanced with reduced emphasis on small RULs)
-weights = np.log1p(np.maximum(y_train, 1))  # Logarithmic scaling to balance weights
+# Calculate sample weights (balanced with slight adjustment)
+weights = np.log1p(np.sqrt(np.maximum(y_train, 1))) / (np.sqrt(y_train + 1) + 0.2)  # Further reduce high RUL boost
 weights = 1 / weights  # Inverse weighting
 weights = weights / weights.mean()  # Normalize
 
@@ -174,15 +172,32 @@ print(pd.Series(weights).describe())
 # Grid Search for hyperparameter tuning
 param_grid = {
     'learning_rate': [0.05, 0.1, 0.2],
-    'max_depth': [4, 5, 6],
-    'subsample': [0.7, 0.8, 0.9],
-    'colsample_bytree': [0.7, 0.8]
+    'max_depth': [5, 6],
+    'subsample': [0.7, 0.8],
+    'colsample_bytree': [0.7, 0.8],
+    'min_child_weight': [3, 5]  # Maintain to control overfitting
 }
-model = xgb.XGBRegressor(reg_lambda=1.0, reg_alpha=0.5, min_child_weight=1)
+model = xgb.XGBRegressor(reg_lambda=1.0, reg_alpha=0.5)
 grid_search = GridSearchCV(model, param_grid, scoring='neg_mean_squared_error', cv=3, verbose=1)
 grid_search.fit(X_train_features, y_train)
 print("Best parameters:", grid_search.best_params_)
 final_model = grid_search.best_estimator_
+
+# Train final model with early stopping
+dtrain = xgb.DMatrix(X_train_features, label=y_train, weight=weights)
+dtest = xgb.DMatrix(X_test_features, label=y_test)
+params = grid_search.best_params_
+params.update({'reg_lambda': 1.0, 'reg_alpha': 0.5, 'objective': 'reg:squarederror'})
+evals = [(dtrain, 'train'), (dtest, 'test')]
+booster = xgb.train(
+    params,
+    dtrain,
+    num_boost_round=200,
+    evals=evals,
+    early_stopping_rounds=10,
+    verbose_eval=False
+)
+final_model._Booster = booster
 
 # Evaluate model (on sqrt scale)
 y_pred = final_model.predict(X_test_features)
