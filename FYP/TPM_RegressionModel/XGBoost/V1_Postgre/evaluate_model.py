@@ -52,7 +52,7 @@ y = data[target]
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
 # Load model
-model = joblib.load('XGBoost/Models/xgboost_rul_model(postgre).pkl')
+model = joblib.load('FYP/TPM_RegressionModel/XGBoost/V1_Postgre/Model/xgboost_rul_model.pkl')
 
 # Predict
 y_pred = model.predict(X_test)
