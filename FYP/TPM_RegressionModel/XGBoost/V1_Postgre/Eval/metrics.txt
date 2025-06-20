@@ -1,0 +1,4 @@
+📊 Evaluation Metrics:
+  - MAE : 12.21 hours
+  - RMSE: 34.76 hours
+  - R²  : -0.0635
