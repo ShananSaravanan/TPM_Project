@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 # Load the new model
-model = joblib.load("xgboost_rul_spc_model.pkl")
+model = joblib.load("FYP/TPM_RegressionModel/XGBoost/V2_Postgre/Model/xgboost_rul_spc_model.pkl")
 
 # Get the feature names from the trained model
 feature_names = model.get_booster().feature_names
@@ -57,9 +57,9 @@ def predict_rul(data: pd.DataFrame) -> pd.DataFrame:
 if __name__ == "__main__":
     # Example usage (for testing)
     sample_data = pd.DataFrame({
-        'machineid': [1], 'datetime': [pd.Timestamp.now()], 'volt': [176.21], 'rotate': [418.50],
-        'pressure': [113], 'vibration': [45], 'age': [18], 'time_since_last_maint': [100],
-        'no_maint': [0], 'error_count': [2], 'time_since_last_error': [50], 'no_error': [0]
+        'machineid': [1], 'datetime': [pd.Timestamp.now()], 'volt': [158], 'rotate': [429.50],
+        'pressure': [94], 'vibration': [58], 'age': [18], 'time_since_last_maint': [0],
+        'no_maint': [1], 'error_count': [3], 'time_since_last_error': [24], 'no_error': [0]
     })
     result = predict_rul(sample_data)
     print(result)
