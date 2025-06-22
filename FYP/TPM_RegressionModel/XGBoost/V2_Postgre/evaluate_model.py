@@ -3,7 +3,7 @@ import numpy as np
 import xgboost as xgb
 import joblib
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, mean_absolute_percentage_error
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.metrics import precision_score, recall_score, f1_score
 from scipy import stats
 
@@ -11,16 +11,16 @@ from scipy import stats
 model = joblib.load('FYP/TPM_RegressionModel/XGBoost/V2_Postgre/Model/xgboost_rul_spc_model.pkl')
 
 # Load test data
-X_test = pd.read_csv('FYP/TPM_RegressionModel/XGBoost/V2_Postgre/X_test.csv')
+X_test_orig = pd.read_csv('FYP/TPM_RegressionModel/XGBoost/V2_Postgre/X_test.csv')
 y_test_sqrt = pd.read_csv('FYP/TPM_RegressionModel/XGBoost/V2_Postgre/y_test.csv')['RUL']  # Loaded as square root scale
 
 # Debug: Print columns and RUL range
-print("X_test columns:", X_test.columns.tolist())
+print("X_test columns:", X_test_orig.columns.tolist())
 print("y_test_orig min:", (y_test_sqrt ** 2).min(), "y_test_orig max:", (y_test_sqrt ** 2).max())
 
-# Ensure feature names match the training set
+# Ensure feature names match the training set, but keep original X_test for datetime
 model_features = model.get_booster().feature_names
-X_test = X_test[model_features].fillna(0)  # Handle any missing values
+X_test = X_test_orig[model_features].fillna(0)  # Feature-aligned for prediction
 
 # Predict on test set (square root scale)
 y_pred_sqrt = model.predict(X_test)
@@ -33,14 +33,11 @@ y_test_orig = y_test_sqrt ** 2  # Reverse square root to match
 rmse = np.sqrt(mean_squared_error(y_test_orig, y_pred_orig))
 mae = mean_absolute_error(y_test_orig, y_pred_orig)
 r2 = r2_score(y_test_orig, y_pred_orig)
-mask = y_test_orig > 1  # Exclude values <= 1 hour to avoid MAPE issues
-mape = mean_absolute_percentage_error(y_test_orig[mask], y_pred_orig[mask]) * 100 if mask.any() else np.nan
 
 print(f"Evaluation Metrics (Original Scale):")
 print(f"RMSE: {rmse:.2f} hours")
 print(f"MAE: {mae:.2f} hours")
 print(f"R²: {r2:.2f}")
-print(f"MAPE: {mape:.2f}%")
 
 # Threshold for classification (e.g., median RUL on original scale)
 threshold = np.median(y_test_orig)  # Use median of original scale
@@ -57,15 +54,24 @@ print(f"Precision: {precision:.2f}")
 print(f"Recall: {recall:.2f}")
 print(f"F1-Score: {f1:.2f}")
 
-# Create actual vs predicted DataFrame and save to CSV
+# Define maximum RUL for relative error calculation (based on your data range)
+max_rul = 4000  # Maximum RUL from train_model_postgre.py filtering
+
+# Create actual vs predicted DataFrame with error and relative percentage error
 actual_vs_predicted = pd.DataFrame({
-    'datetime': X_test['datetime'],
-    'machineID': X_test['machineID'],
+    'datetime': X_test_orig['datetime'],
+    'machineid': X_test_orig['machineid'],
     'Actual_RUL': y_test_orig,
-    'Predicted_RUL': y_pred_orig
+    'Predicted_RUL': y_pred_orig,
+    'Error': np.abs(y_test_orig - y_pred_orig),  # Absolute error
+    'Percentage_Error': (np.abs(y_test_orig - y_pred_orig) / max_rul) * 100  # Relative percentage error
 })
 actual_vs_predicted.to_csv('actual_vs_predicted.csv', index=False)
-print("✅ Saved 'actual_vs_predicted.csv' with datetime, machineID, actual and predicted RUL values (original scale).")
+print("✅ Saved 'actual_vs_predicted.csv' with datetime, machineid, actual, predicted RUL, error, and percentage error values (original scale).")
+
+# Calculate overall average percentage error
+average_percentage_error = actual_vs_predicted['Percentage_Error'].mean()
+print(f"\nOverall Average Percentage Error: {average_percentage_error:.2f}% (relative to max RUL of {max_rul} hours)")
 
 # Plot 1: Predicted vs Actual RUL (original scale)
 plt.figure(figsize=(8, 6))
@@ -144,8 +150,8 @@ if len(outliers) > 0:
     print(f"\nNumber of significant outliers (error > {outlier_threshold} hours): {len(outliers)}")
     print(f"Indices of outliers: {outliers}")
     # Optional: Print outlier details
-    outliers_df = X_test.iloc[outliers][['datetime', 'machineID']]
-    print("Outlier Details (datetime, machineID):")
+    outliers_df = X_test_orig.iloc[outliers][['datetime', 'machineid']]
+    print("Outlier Details (datetime, machineid):")
     print(outliers_df.head())
 else:
     print(f"\nNo significant outliers detected (error > {outlier_threshold} hours).")

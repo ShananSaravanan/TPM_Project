@@ -85,7 +85,7 @@ def send_telegram_alert(chat_id, message_text):
 def send_email_alert(machine_id, rul_value):
     sender_email = "shananmessi10@gmail.com"
     sender_password = "aswv tqus gstv wnfc"  # Replace with your actual app password
-    recipient_email = "dreshya1423@gmail.com"  # Replace with your recipient email
+    recipient_email = "shanansaravanan03@gmail.com"  # Replace with your recipient email
 
     subject = f"⚠️ Maintenance Alert: Machine {machine_id} RUL Below 200"
     body = f"Warning! The Remaining Useful Life (RUL) of Machine {machine_id} has dropped below 200 hours.\n\nCurrent RUL: {rul_value} hours"

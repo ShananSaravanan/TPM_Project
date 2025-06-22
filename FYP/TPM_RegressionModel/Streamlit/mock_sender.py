@@ -12,10 +12,10 @@ while True:
         data = {
             "machineid": machine_id,
             "datetime": datetime.now().isoformat(),
-            "volt": round(random.uniform(30.0, 35.0), 2),
-            "rotate": round(random.uniform(1300, 1500), 2),
-            "pressure": round(random.uniform(100, 120), 2),
-            "vibration": round(random.uniform(30, 40), 2)
+            "volt": random.uniform(97.333603782359, 255.124717259791),
+            "rotate": random.uniform(138.432075304341, 695.020984403396),
+            "pressure": random.uniform(51.2371057734253, 185.951997730866),
+            "vibration": random.uniform(14.877053998383, 76.7910723016723)
         }
 
         try:
