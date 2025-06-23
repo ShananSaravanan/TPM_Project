@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import time
 from sqlalchemy import create_engine, text
 import requests
 import smtplib
@@ -21,9 +20,9 @@ logger = logging.getLogger(__name__)
 # --------------------------- 
 # 🎛 Page & DB Setup
 # --------------------------- 
-st.set_page_config(page_title="Professional Preventive Maintenance Dashboard", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AIPM+ Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# Custom CSS for light mode and professional styling
+# Custom CSS for light mode, professional styling, and menu
 st.markdown("""
     <style>
     /* Force light mode */
@@ -32,45 +31,35 @@ st.markdown("""
         color: #333333;
     }
     /* Sidebar styling */
-    .sidebar .sidebar-content {
-        background-color: #f8f9fa;
-        padding: 20px;
+    .css-1lcbmhc {
+        background-color: #2c2f33;
+        padding: 10px;
     }
-    .sidebar-button {
+    .sidebar .sidebar-content {
+        background-color: #2c2f33;
+        padding: 0;
+    }
+    /* Menu button styling */
+    button[data-testid="stButton"] {
         display: block;
         width: 100%;
-        padding: 10px;
-        margin: 5px 0;
-        background-color: #e9ecef;
-        border: none;
-        border-radius: 5px;
+        padding: 10px 15px;
+        color: #ffffff;
         text-align: left;
+        border: none;
+        background: none;
         font-size: 16px;
         cursor: pointer;
         transition: background-color 0.3s;
     }
-    .sidebar-button:hover {
-        background-color: #dee2e6;
+    button[data-testid="stButton"]:hover {
+        background-color: #7289da;
+        color: #ffffff;
     }
-    .sidebar-button.active {
-        background-color: #007bff;
-        color: white;
-    }
-    /* Header styling */
-    .header {
-        background-color: #007bff;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 5px;
-        margin-bottom: 20px;
-    }
-    /* Card styling for graphs */
-    .card {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
+    /* Active menu button styling */
+    button[data-testid="stButton"].active {
+        background-color: #7289da;
+        color: #ffffff;
     }
     /* Chat assistant styling */
     #chat-button {
@@ -100,6 +89,14 @@ st.markdown("""
         overflow-y: auto;
         z-index: 9998;
         box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    /* Card styling for graphs */
+    .card {
+        background-color: #ffffff;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -164,6 +161,43 @@ def create_maintenance_history_table():
     except Exception as e:
         logger.error(f"Failed to create maintenance history table: {e}")
 
+def create_work_orders_table():
+    """Create work orders table."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS work_orders (
+                    id SERIAL PRIMARY KEY,
+                    machineid VARCHAR(50) NOT NULL,
+                    task_description TEXT NOT NULL,
+                    priority VARCHAR(20) NOT NULL,
+                    status VARCHAR(20) DEFAULT 'Pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.commit()
+            logger.info("Work orders table created or verified")
+    except Exception as e:
+        logger.error(f"Failed to create work orders table: {e}")
+
+def create_machines_table():
+    """Create machines table if it doesn't exist."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS machines (
+                    machineid VARCHAR(50) PRIMARY KEY,
+                    model VARCHAR(100),
+                    location VARCHAR(100),
+                    status VARCHAR(20) DEFAULT 'Active',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.commit()
+            logger.info("Machines table created or verified")
+    except Exception as e:
+        logger.error(f"Failed to create machines table: {e}")
+
 def validate_email(email):
     """Validate email format."""
     pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
@@ -227,17 +261,19 @@ if 'username' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'selected_menu' not in st.session_state:
-    st.session_state.selected_menu = "Dashboard"
+    st.session_state.selected_menu = "Dashboard 📊"
 
 # Create tables
 create_users_table()
 create_maintenance_history_table()
+create_work_orders_table()
+create_machines_table()
 
 # --------------------------- 
 # 🔐 Login/Register Page
 # --------------------------- 
 if not st.session_state.logged_in:
-    st.title("🔐 Professional Preventive Maintenance Dashboard")
+    st.title("🔐 AIPM+ Dashboard")
     auth_option = st.selectbox("Choose Action", ["Login", "Register"])
 
     if auth_option == "Login":
@@ -316,24 +352,31 @@ else:
     # --------------------------- 
     # 📋 Main Dashboard with Sidebar
     # --------------------------- 
-    st.markdown('<div class="header"><h2>Preventive Maintenance Dashboard</h2></div>', unsafe_allow_html=True)
-    st.sidebar.markdown(f"<h3>Welcome, {st.session_state.username}</h3>", unsafe_allow_html=True)
+    
+    st.sidebar.markdown(f"<h3 style='color: black;'>Welcome, {st.session_state.username}</h3>", unsafe_allow_html=True)
 
     # Sidebar menu with buttons
     menu_items = [
-        ("Dashboard", "📊"),
-        ("Live Telemetry", "🔋"),
-        ("RUL Watch", "⏳"),
-        ("Maintenance Scheduler", "🗓"),
-        ("Assets", "🛠"),
-        ("Work Orders", "📋"),
-        ("Management", "👷")
+        "Dashboard 📊",
+        "Live Telemetry 🔋",
+        "RUL Watch ⏳",
+        "Maintenance Scheduler 🗓",
+        "Assets 🛠",
+        "Work Orders 📋",
+        "Order Requests 📬",
+        "Reports 📈",
+        "Management 👷",
+        "Account 👤",
+        "Configuration ⚙️"
     ]
-    for item, icon in menu_items:
-        if st.sidebar.button(f"{item} {icon}", key=item, help=f"Navigate to {item}"):
+
+    for item in menu_items:
+        if st.sidebar.button(item, key=item, help=f"Navigate to {item.split(' ')[0]}"):
             st.session_state.selected_menu = item
+            st.rerun()
         if st.session_state.selected_menu == item:
-            st.sidebar.markdown(f'<style>.sidebar-button[key="{item}"] {{ background-color: #007bff; color: white; }}</style>', unsafe_allow_html=True)
+            st.sidebar.markdown(f'<style>button[data-testid="stButton"][key="{item}"] {{ background-color: #7289da; color: #ffffff; }}</style>', unsafe_allow_html=True)
+
     st.sidebar.button("Logout", on_click=lambda: [setattr(st.session_state, 'logged_in', False), setattr(st.session_state, 'username', None)])
 
     # --------------------------- 
@@ -375,7 +418,7 @@ else:
     # --------------------------- 
     # 📊 Dashboard
     # --------------------------- 
-    if st.session_state.selected_menu == "Dashboard":
+    if st.session_state.selected_menu == "Dashboard 📊":
         st.title("📊 Analytics Dashboard")
         st.markdown("Comprehensive insights into machine health, performance, and maintenance needs.")
 
@@ -388,7 +431,6 @@ else:
             date_range = st.date_input("Select Date Range", [datetime.now().date(), datetime.now().date()])
 
         # Summary Metrics
-        st.markdown('<div class="card">', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
             critical_machines = len(pd.read_sql("SELECT DISTINCT machineid FROM predictions WHERE rul_pred < 200", engine))
@@ -402,7 +444,6 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
         # Machine Health Score Gauge
-        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Machine Health Scores")
         health_scores = pd.read_sql("SELECT machineid, rul_pred FROM predictions WHERE prediction_time = (SELECT MAX(prediction_time) FROM predictions)", engine)
         health_scores["health_score"] = 100 * (health_scores["rul_pred"] / health_scores["rul_pred"].max())
@@ -424,7 +465,6 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
         # Failure Risk Trend
-        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Failure Risk Trend")
         rul_data = pd.read_sql("SELECT prediction_time, AVG(rul_pred) as avg_rul FROM predictions GROUP BY prediction_time ORDER BY prediction_time", engine)
         rul_data["failure_risk"] = 100 * (1 - rul_data["avg_rul"] / rul_data["avg_rul"].max())
@@ -433,7 +473,6 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
         # Telemetry Correlation Heatmap
-        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Telemetry Correlation Analysis")
         telemetry = pd.read_sql("SELECT volt, rotate, pressure, vibration FROM telemetry WHERE machineid IN :machines", engine, params={"machines": tuple(selected_machines)})
         corr_matrix = telemetry.corr()
@@ -442,7 +481,6 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
         # Maintenance History
-        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Maintenance History")
         maintenance_data = pd.read_sql("SELECT machineid, maintenance_date, maintenance_type FROM maintenance_history WHERE machineid IN :machines", engine, params={"machines": tuple(selected_machines)})
         if not maintenance_data.empty:
@@ -455,11 +493,10 @@ else:
     # --------------------------- 
     # 🔋 Live Telemetry
     # --------------------------- 
-    elif st.session_state.selected_menu == "Live Telemetry":
+    elif st.session_state.selected_menu == "Live Telemetry 🔋":
         st.title("🔋 Live Telemetry Viewer")
         machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
         selected_machine = st.selectbox("🔧 Select Machine", machine_ids)
-        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader(f"Telemetry Trend for Machine {selected_machine}")
         telemetry_option = st.selectbox("Select telemetry type", ["volt", "rotate", "pressure", "vibration"])
         tele_query = text("SELECT * FROM telemetry WHERE machineid = :machine_id ORDER BY datetime")
@@ -468,31 +505,16 @@ else:
         telemetry.set_index("datetime", inplace=True)
         fig = px.line(telemetry.tail(20), y=telemetry_option, title=f"{telemetry_option.capitalize()} Trend")
         st.plotly_chart(fig, use_container_width=True)
-        if st.button("▶️ Start Telemetry Stream"):
-            placeholder = st.empty()
-            for _ in range(100):
-                time.sleep(10)
-                latest_query = text("""
-                    SELECT * FROM telemetry 
-                    WHERE machineid = :machine_id 
-                    ORDER BY datetime DESC LIMIT 1
-                """)
-                latest = pd.read_sql(latest_query, engine, params={"machine_id": selected_machine})
-                latest["datetime"] = pd.to_datetime(latest["datetime"])
-                latest.set_index("datetime", inplace=True)
-                telemetry = pd.concat([telemetry, latest])
-                fig = px.line(telemetry.tail(20), y=telemetry_option, title=f"{telemetry_option.capitalize()} Trend")
-                placeholder.plotly_chart(fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # ⏳ RUL Watch
     # --------------------------- 
-    elif st.session_state.selected_menu == "RUL Watch":
+    elif st.session_state.selected_menu == "RUL Watch ⏳":
         st.title("⏳ RUL Watch")
         machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
         selected_machine = st.selectbox("🔧 Select Machine", machine_ids)
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        
         st.subheader(f"RUL Prediction Trend for Machine {selected_machine}")
         @st.cache_data(ttl=60)
         def get_rul_data(machine_id):
@@ -517,33 +539,14 @@ else:
                 f"Current RUL: {latest_rul_value} hours"
             )
             send_telegram_alert(chat_id, telegram_message)
-        if st.button("▶️ Start RUL Stream"):
-            placeholder = st.empty()
-            for _ in range(100):
-                time.sleep(10)
-                latest_rul = get_rul_data(selected_machine).tail(1)
-                latest_rul_value = latest_rul["rul_pred"].iloc[-1] if not latest_rul.empty else float('inf')
-                rul_data = pd.concat([rul_data, latest_rul])
-                fig = px.line(rul_data.tail(30), y="rul_pred", title="RUL Prediction Trend")
-                placeholder.plotly_chart(fig, use_container_width=True)
-                if latest_rul_value < alert_threshold:
-                    st.warning(f"⚠️ Warning! RUL is below {alert_threshold} hours! Maintenance is recommended.", icon="⚠️")
-                    send_email_alert(selected_machine, latest_rul_value)
-                    chat_id = -1002671447415
-                    telegram_message = (
-                        f"⚠️ <b>Maintenance Alert</b>\n"
-                        f"Machine {selected_machine} RUL is low!\n"
-                        f"Current RUL: {latest_rul_value} hours"
-                    )
-                    send_telegram_alert(chat_id, telegram_message)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 🗓 Maintenance Scheduler
     # --------------------------- 
-    elif st.session_state.selected_menu == "Maintenance Scheduler":
+    elif st.session_state.selected_menu == "Maintenance Scheduler 🗓":
         st.title("🗓 Maintenance Scheduler")
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        
         st.write("Schedule maintenance tasks for machines.")
         machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
         selected_machine = st.selectbox("Select Machine", machine_ids)
@@ -573,26 +576,51 @@ else:
     # --------------------------- 
     # 🛠 Assets
     # --------------------------- 
-    elif st.session_state.selected_menu == "Assets":
+    elif st.session_state.selected_menu == "Assets 🛠":
         st.title("🛠 Assets Management")
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.write("Manage machine assets.")
-        st.subheader("Asset List")
-        machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
-        st.dataframe(pd.DataFrame({"Machine ID": machine_ids}))
-        st.subheader("Add New Asset")
-        new_asset_id = st.text_input("New Machine ID")
-        if st.button("Add Asset"):
-            st.success(f"Asset {new_asset_id} added!")
-            logger.info(f"Asset {new_asset_id} added (placeholder)")
+        
+        st.write("View and manage machine assets details.")
+        st.subheader("Machine Details")
+        try:
+            machines = pd.read_sql("SELECT * FROM machines", engine)
+            if not machines.empty:
+                st.dataframe(machines)
+            else:
+                st.info("No machine details available in the database.")
+        except Exception as e:
+            st.error(f"Failed to load machine details: {e}")
+            logger.error(f"Machine details loading error: {e}")
+
+        st.subheader("Add New Machine")
+        with st.form("add_machine_form"):
+            new_machine_id = st.text_input("Machine ID")
+            model = st.text_input("Model")
+            location = st.text_input("Location")
+            if st.form_submit_button("Add Machine"):
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text("""
+                            INSERT INTO machines (machineid, model, location)
+                            VALUES (:machineid, :model, :location)
+                        """), {
+                            "machineid": new_machine_id,
+                            "model": model,
+                            "location": location
+                        })
+                        conn.commit()
+                    st.success(f"Machine {new_machine_id} added successfully!")
+                    logger.info(f"Machine {new_machine_id} added")
+                except Exception as e:
+                    st.error(f"Failed to add machine: {e}")
+                    logger.error(f"Machine addition error: {e}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 📋 Work Orders
     # --------------------------- 
-    elif st.session_state.selected_menu == "Work Orders":
+    elif st.session_state.selected_menu == "Work Orders 📋":
         st.title("📋 Work Orders Management")
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        
         st.write("Manage work orders for maintenance tasks.")
         st.subheader("Create Work Order")
         machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
@@ -600,23 +628,157 @@ else:
         task_description = st.text_area("Task Description")
         priority = st.selectbox("Priority", ["Low", "Medium", "High"])
         if st.button("Create Work Order"):
-            st.success(f"Work order created for Machine {selected_machine}!")
-            logger.info(f"Work order created for Machine {selected_machine} (placeholder)")
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text("""
+                        INSERT INTO work_orders (machineid, task_description, priority)
+                        VALUES (:machineid, :task_description, :priority)
+                    """), {
+                        "machineid": selected_machine,
+                        "task_description": task_description,
+                        "priority": priority
+                    })
+                    conn.commit()
+                st.success(f"Work order created for Machine {selected_machine}!")
+                logger.info(f"Work order created for Machine {selected_machine}")
+            except Exception as e:
+                st.error(f"Failed to create work order: {e}")
+                logger.error(f"Work order creation error: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --------------------------- 
+    # 📬 Order Requests
+    # --------------------------- 
+    elif st.session_state.selected_menu == "Order Requests 📬":
+        st.title("📬 Order Requests")
+        
+        st.write("View all requested work orders.")
+        st.subheader("Work Orders List")
+        try:
+            work_orders = pd.read_sql("SELECT id, machineid, task_description, priority, status, created_at FROM work_orders ORDER BY created_at DESC", engine)
+            if not work_orders.empty:
+                st.dataframe(work_orders)
+            else:
+                st.info("No work orders found.")
+        except Exception as e:
+            st.error(f"Failed to load work orders: {e}")
+            logger.error(f"Work orders loading error: {e}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --------------------------- 
+    # 📈 Reports
+    # --------------------------- 
+    elif st.session_state.selected_menu == "Reports 📈":
+        st.title("📈 Reports")
+        
+        st.write("Generate and view maintenance reports.")
+        st.subheader("Maintenance Report")
+        report_type = st.selectbox("Select Report Type", ["Maintenance History", "RUL Summary"])
+        if report_type == "Maintenance History":
+            try:
+                maintenance_data = pd.read_sql("SELECT machineid, maintenance_date, maintenance_type, notes FROM maintenance_history ORDER BY maintenance_date DESC", engine)
+                if not maintenance_data.empty:
+                    st.dataframe(maintenance_data)
+                    fig = px.histogram(maintenance_data, x="machineid", color="maintenance_type", title="Maintenance Actions by Machine")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No maintenance history available.")
+            except Exception as e:
+                st.error(f"Failed to load maintenance history: {e}")
+                logger.error(f"Maintenance history loading error: {e}")
+        elif report_type == "RUL Summary":
+            try:
+                rul_data = pd.read_sql("SELECT machineid, rul_pred, prediction_time FROM predictions WHERE prediction_time = (SELECT MAX(prediction_time) FROM predictions)", engine)
+                if not rul_data.empty:
+                    st.dataframe(rul_data)
+                    fig = px.bar(rul_data, x="machineid", y="rul_pred", title="Current RUL by Machine")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No RUL predictions available.")
+            except Exception as e:
+                st.error(f"Failed to load RUL data: {e}")
+                logger.error(f"RUL data loading error: {e}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 👷 Management
     # --------------------------- 
-    elif st.session_state.selected_menu == "Management":
+    elif st.session_state.selected_menu == "Management 👷":
         st.title("👷 Management")
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        
         st.write("Manage teams, reports, and settings.")
         st.subheader("Team Management")
         st.write("Placeholder for team management functionality.")
-        st.subheader("Reports")
-        st.write("Placeholder for generating reports.")
         st.subheader("Settings")
         st.write("Placeholder for system settings.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --------------------------- 
+    # 👤 Account
+    # --------------------------- 
+    elif st.session_state.selected_menu == "Account 👤":
+        st.title("👤 Account Settings")
+        
+        st.write("Manage your account details.")
+        st.subheader("User Information")
+        try:
+            with engine.connect() as conn:
+                user_data = conn.execute(text("""
+                    SELECT username, email, created_at 
+                    FROM users 
+                    WHERE username = :username
+                """), {"username": st.session_state.username}).fetchone()
+                if user_data:
+                    st.write(f"Username: {user_data[0]}")
+                    st.write(f"Email: {user_data[1]}")
+                    st.write(f"Account Created: {user_data[2]}")
+        except Exception as e:
+            st.error(f"Failed to load user information: {e}")
+            logger.error(f"User information loading error: {e}")
+
+        st.subheader("Update Password")
+        with st.form("update_password"):
+            current_password = st.text_input("Current Password", type="password")
+            new_password = st.text_input("New Password", type="password")
+            confirm_password = st.text_input("Confirm New Password", type="password")
+            if st.form_submit_button("Update Password"):
+                if new_password != confirm_password:
+                    st.error("New passwords do not match.")
+                elif login_user(st.session_state.username, current_password):
+                    try:
+                        with engine.connect() as conn:
+                            conn.execute(text("""
+                                UPDATE users 
+                                SET password = :new_password 
+                                WHERE username = :username
+                            """), {
+                                "new_password": new_password,
+                                "username": st.session_state.username
+                            })
+                            conn.commit()
+                        st.success("Password updated successfully!")
+                        logger.info(f"Password updated for user {st.session_state.username}")
+                    except Exception as e:
+                        st.error(f"Failed to update password: {e}")
+                        logger.error(f"Password update error: {e}")
+                else:
+                    st.error("Current password is incorrect.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --------------------------- 
+    # ⚙️ Configuration
+    # --------------------------- 
+    elif st.session_state.selected_menu == "Configuration ⚙️":
+        st.title("⚙️ Configuration")
+        
+        st.write("Configure system settings and parameters.")
+        st.subheader("General Settings")
+        st.write("Placeholder for general configuration options.")
+        st.subheader("Alert Thresholds")
+        alert_threshold = st.number_input("RUL Alert Threshold (hours)", min_value=0, value=200)
+        if st.button("Save Threshold"):
+            st.success(f"RUL Alert Threshold set to {alert_threshold} hours!")
+            logger.info(f"RUL Alert Threshold updated to {alert_threshold}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
@@ -640,7 +802,7 @@ else:
     }
     </script>
     """, height=0)
-    st.write("## AI Assistant Chatbox")
+    st.write("## AI Assistant Chatbot")
     for sender, msg in st.session_state.chat_history:
         align = "user" if sender == "user" else "assistant"
         with st.chat_message(align):
