@@ -1,0 +1,7 @@
+streamlit==1.36.0
+pandas==2.2.2
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+requests==2.32.3
+smtplib==3.9.0
+mistral-query==0.1.0
