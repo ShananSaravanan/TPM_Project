@@ -62,6 +62,15 @@ st.markdown("""
         background-color: #7289da;
         color: #ffffff;
     }
+    /* Logout button styling */
+    button[data-testid="stButton"][key="Logout"] {
+        background-color: #ff0000;
+        color: #ffffff;
+    }
+    button[data-testid="stButton"][key="Logout"]:hover {
+        background-color: #cc0000;
+        color: #ffffff;
+    }
     /* Chat assistant styling */
     #chat-button {
         position: fixed;
@@ -308,7 +317,7 @@ else:
         st.session_state.selected_menu = None
         st.session_state.rerun_trigger = True
 
-    st.sidebar.button("Logout", on_click=logout)
+    st.sidebar.button("Logout", on_click=logout, key="Logout")
 
     # Trigger rerun based on session state flag
     if st.session_state.rerun_trigger:
@@ -391,7 +400,11 @@ else:
                 title={'text': f"Health Score: Machine {selected_machine}"},
                 gauge={'axis': {'range': [0, 100]},
                        'bar': {'color': "#007bff"},
-                       'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': 30}}))
+                       'steps': [
+                           {'range': [0, 30], 'color': "red"},
+                           {'range': [30, 70], 'color': "orange"},
+                           {'range': [70, 100], 'color': "green"}
+                       ]}))
             st.plotly_chart(fig, use_container_width=True)
         with col2:
             fig = px.bar(health_scores, x="machineid", y="health_score", title="Health Scores Across Machines")
