@@ -12,6 +12,7 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+import time
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # --------------------------- 
 # 🎛 Page & DB Setup
 # --------------------------- 
-st.set_page_config(page_title="AIPM+ Dashboard", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AIPM+ Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
 # Custom CSS for light mode, professional styling, and menu
 st.markdown("""
@@ -114,19 +115,9 @@ except Exception as e:
 # 🔐 Authentication Setup
 # --------------------------- 
 def create_users_table():
-    """Create users table if it doesn't exist or verify schema."""
+    """Create users table if it doesn't exist."""
     try:
         with engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT column_name, data_type 
-                FROM information_schema.columns 
-                WHERE table_name = 'users' AND column_name = 'password'
-            """)).fetchone()
-            if result and result[1].lower() != 'character varying':
-                logger.warning("Incorrect password column type detected. Dropping and recreating users table.")
-                conn.execute(text("DROP TABLE IF EXISTS users"))
-                conn.commit()
-            
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
@@ -142,33 +133,14 @@ def create_users_table():
         logger.error(f"Failed to create users table: {e}")
         st.error(f"Database error: {e}")
 
-def create_maintenance_history_table():
-    """Create maintenance history table for analytics."""
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS maintenance_history (
-                    id SERIAL PRIMARY KEY,
-                    machineid VARCHAR(50) NOT NULL,
-                    maintenance_date DATE NOT NULL,
-                    maintenance_type VARCHAR(50) NOT NULL,
-                    notes TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """))
-            conn.commit()
-            logger.info("Maintenance history table created or verified")
-    except Exception as e:
-        logger.error(f"Failed to create maintenance history table: {e}")
-
 def create_work_orders_table():
-    """Create work orders table."""
+    """Create work orders table if it doesn't exist."""
     try:
         with engine.connect() as conn:
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS work_orders (
                     id SERIAL PRIMARY KEY,
-                    machineid VARCHAR(50) NOT NULL,
+                    machineid INTEGER NOT NULL,
                     task_description TEXT NOT NULL,
                     priority VARCHAR(20) NOT NULL,
                     status VARCHAR(20) DEFAULT 'Pending',
@@ -179,24 +151,6 @@ def create_work_orders_table():
             logger.info("Work orders table created or verified")
     except Exception as e:
         logger.error(f"Failed to create work orders table: {e}")
-
-def create_machines_table():
-    """Create machines table if it doesn't exist."""
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS machines (
-                    machineid VARCHAR(50) PRIMARY KEY,
-                    model VARCHAR(100),
-                    location VARCHAR(100),
-                    status VARCHAR(20) DEFAULT 'Active',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """))
-            conn.commit()
-            logger.info("Machines table created or verified")
-    except Exception as e:
-        logger.error(f"Failed to create machines table: {e}")
 
 def validate_email(email):
     """Validate email format."""
@@ -261,13 +215,15 @@ if 'username' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'selected_menu' not in st.session_state:
-    st.session_state.selected_menu = "Dashboard 📊"
+    st.session_state.selected_menu = None  # Set to None initially, will be set post-login
+if 'alert_email' not in st.session_state:
+    st.session_state.alert_email = "shanansaravanan03@gmail.com"  # Default email
+if 'rerun_trigger' not in st.session_state:
+    st.session_state.rerun_trigger = False
 
-# Create tables
+# Create tables (only new ones, no dropping existing tables)
 create_users_table()
-create_maintenance_history_table()
 create_work_orders_table()
-create_machines_table()
 
 # --------------------------- 
 # 🔐 Login/Register Page
@@ -288,8 +244,8 @@ if not st.session_state.logged_in:
                 elif login_user(username, password):
                     st.session_state.logged_in = True
                     st.session_state.username = username.lower()
-                    st.success("Logged in successfully!")
-                    st.rerun()
+                    st.session_state.selected_menu = "Dashboard 📊"  # Set default menu after login
+                    st.session_state.rerun_trigger = True
                 else:
                     st.error("Invalid username or password. Please check your credentials.")
                     logger.warning(f"Login attempt failed for {username.lower()}")
@@ -314,45 +270,11 @@ if not st.session_state.logged_in:
                     st.error("Registration failed. Username or email may already exist.")
                     logger.warning(f"Registration failed for {username.lower()}")
 
-    # Debug tool
-    with st.expander("Debug Authentication"):
-        debug_username = st.text_input("Debug Username")
-        debug_password = st.text_input("Debug Password", type="password")
-        if st.button("Run Debug"):
-            try:
-                with engine.connect() as conn:
-                    result = conn.execute(text("""
-                        SELECT username, password, email, created_at 
-                        FROM users 
-                        WHERE username = :username
-                    """), {"username": debug_username.lower()}).fetchone()
-                    if result:
-                        stored_password = result[1]
-                        password_match = debug_password == stored_password
-                        debug_result = {
-                            "user_found": True,
-                            "password_match": password_match,
-                            "stored_password": stored_password,
-                            "entered_password": debug_password,
-                            "username": result[0],
-                            "email": result[2],
-                            "created_at": str(result[3])
-                        }
-                        logger.info(f"Debug for {debug_username.lower()}: {debug_result}")
-                    else:
-                        debug_result = {"user_found": False, "password_match": False}
-                        logger.info(f"Debug for {debug_username.lower()}: User not found")
-                    st.write(debug_result)
-            except Exception as e:
-                debug_result = {"error": str(e)}
-                logger.error(f"Debug error: {e}")
-                st.write(debug_result)
-
 else:
     # --------------------------- 
     # 📋 Main Dashboard with Sidebar
     # --------------------------- 
-    
+    st.sidebar.markdown("<h3 style='color: black;'>AIPM+ System</h3>", unsafe_allow_html=True)
     st.sidebar.markdown(f"<h3 style='color: black;'>Welcome, {st.session_state.username}</h3>", unsafe_allow_html=True)
 
     # Sidebar menu with buttons
@@ -365,19 +287,33 @@ else:
         "Work Orders 📋",
         "Order Requests 📬",
         "Reports 📈",
-        "Management 👷",
         "Account 👤",
         "Configuration ⚙️"
     ]
 
+    # Set default menu if not set post-login
+    if st.session_state.selected_menu is None:
+        st.session_state.selected_menu = "Dashboard 📊"
+
     for item in menu_items:
         if st.sidebar.button(item, key=item, help=f"Navigate to {item.split(' ')[0]}"):
             st.session_state.selected_menu = item
-            st.rerun()
+            st.session_state.rerun_trigger = True
         if st.session_state.selected_menu == item:
             st.sidebar.markdown(f'<style>button[data-testid="stButton"][key="{item}"] {{ background-color: #7289da; color: #ffffff; }}</style>', unsafe_allow_html=True)
 
-    st.sidebar.button("Logout", on_click=lambda: [setattr(st.session_state, 'logged_in', False), setattr(st.session_state, 'username', None)])
+    def logout():
+        st.session_state.logged_in = False
+        st.session_state.username = None
+        st.session_state.selected_menu = None
+        st.session_state.rerun_trigger = True
+
+    st.sidebar.button("Logout", on_click=logout)
+
+    # Trigger rerun based on session state flag
+    if st.session_state.rerun_trigger:
+        st.session_state.rerun_trigger = False
+        st.rerun()
 
     # --------------------------- 
     # 🔧 Common Functions
@@ -395,12 +331,11 @@ else:
         except Exception as e:
             print(f"❌ Exception sending telegram alert: {e}")
 
-    def send_email_alert(machine_id, rul_value):
+    def send_email_alert(machine_id, rul_value, recipient_email):
         sender_email = "shananmessi10@gmail.com"
         sender_password = "aswv tqus gstv wnfc"
-        recipient_email = "shanansaravanan03@gmail.com"
-        subject = f"⚠️ Maintenance Alert: Machine {machine_id} RUL Below 200"
-        body = f"Warning! The Remaining Useful Life (RUL) of Machine {machine_id} has dropped below 200 hours.\n\nCurrent RUL: {rul_value} hours"
+        subject = f"⚠️ Maintenance Alert: Machine {machine_id} RUL Below Threshold"
+        body = f"Warning! The Remaining Useful Life (RUL) of Machine {machine_id} has dropped below the threshold.\n\nCurrent RUL: {rul_value} hours\nThreshold: {alert_threshold} hours"
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = recipient_email
@@ -439,9 +374,8 @@ else:
             avg_rul = pd.read_sql("SELECT AVG(rul_pred) as avg_rul FROM predictions", engine)["avg_rul"].iloc[0]
             st.metric("Average RUL (Hours)", f"{avg_rul:.1f}", delta=10)
         with col3:
-            total_machines = len(machine_ids)
+            total_machines = len(pd.read_sql("SELECT DISTINCT machineid FROM machines", engine))
             st.metric("Total Machines", total_machines)
-        st.markdown('</div>', unsafe_allow_html=True)
 
         # Machine Health Score Gauge
         st.subheader("Machine Health Scores")
@@ -462,7 +396,6 @@ else:
         with col2:
             fig = px.bar(health_scores, x="machineid", y="health_score", title="Health Scores Across Machines")
             st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
         # Failure Risk Trend
         st.subheader("Failure Risk Trend")
@@ -470,25 +403,32 @@ else:
         rul_data["failure_risk"] = 100 * (1 - rul_data["avg_rul"] / rul_data["avg_rul"].max())
         fig = px.line(rul_data, x="prediction_time", y="failure_risk", title="Average Failure Risk Over Time")
         st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
         # Telemetry Correlation Heatmap
         st.subheader("Telemetry Correlation Analysis")
-        telemetry = pd.read_sql("SELECT volt, rotate, pressure, vibration FROM telemetry WHERE machineid IN :machines", engine, params={"machines": tuple(selected_machines)})
-        corr_matrix = telemetry.corr()
-        fig = px.imshow(corr_matrix, text_auto=True, title="Correlation Heatmap of Telemetry Metrics")
-        st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        if selected_machines:
+            placeholders = ", ".join(["%s" for _ in selected_machines])
+            query = f"SELECT volt, rotate, pressure, vibration FROM telemetry WHERE machineid IN ({placeholders})"
+            telemetry = pd.read_sql(query, engine, params=tuple(selected_machines))
+            corr_matrix = telemetry.corr()
+            fig = px.imshow(corr_matrix, text_auto=True, title="Correlation Heatmap of Telemetry Metrics")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No machines selected for correlation analysis.")
 
         # Maintenance History
         st.subheader("Maintenance History")
-        maintenance_data = pd.read_sql("SELECT machineid, maintenance_date, maintenance_type FROM maintenance_history WHERE machineid IN :machines", engine, params={"machines": tuple(selected_machines)})
-        if not maintenance_data.empty:
-            fig = px.histogram(maintenance_data, x="machineid", color="maintenance_type", title="Maintenance Actions by Machine")
-            st.plotly_chart(fig, use_container_width=True)
+        if selected_machines:
+            placeholders = ", ".join(["%s" for _ in selected_machines])
+            query = f"SELECT machineid, datetime, comp FROM maintenance WHERE machineid IN ({placeholders})"
+            maintenance_data = pd.read_sql(query, engine, params=tuple(selected_machines))
+            if not maintenance_data.empty:
+                fig = px.histogram(maintenance_data, x="machineid", color="comp", title="Maintenance Actions by Machine")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No maintenance history available. Schedule maintenance to populate this chart.")
         else:
-            st.info("No maintenance history available. Schedule maintenance to populate this chart.")
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.info("No machines selected for maintenance history.")
 
     # --------------------------- 
     # 🔋 Live Telemetry
@@ -505,7 +445,6 @@ else:
         telemetry.set_index("datetime", inplace=True)
         fig = px.line(telemetry.tail(20), y=telemetry_option, title=f"{telemetry_option.capitalize()} Trend")
         st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # ⏳ RUL Watch
@@ -518,28 +457,59 @@ else:
         st.subheader(f"RUL Prediction Trend for Machine {selected_machine}")
         @st.cache_data(ttl=60)
         def get_rul_data(machine_id):
-            rul_query = text("SELECT prediction_time, rul_pred FROM predictions WHERE machineid = :machine_id ORDER BY prediction_time")
+            rul_query = text("SELECT prediction_time, rul_pred FROM predictions WHERE machineid = :machine_id ORDER BY prediction_time DESC LIMIT 2")
             rul_data = pd.read_sql(rul_query, engine, params={"machine_id": machine_id})
             rul_data["prediction_time"] = pd.to_datetime(rul_data["prediction_time"])
-            rul_data.set_index("prediction_time", inplace=True)
             return rul_data
+
         rul_data = get_rul_data(selected_machine)
-        fig = px.line(rul_data.tail(30), y="rul_pred", title="RUL Prediction Trend")
+        if not rul_data.empty:
+            recent_rul = rul_data.iloc[0]["rul_pred"]
+            col1, col2 = st.columns(2)
+            with col1:
+                if len(rul_data) > 1:
+                    last_rul = rul_data.iloc[1]["rul_pred"]
+                    rul_change = recent_rul - last_rul
+                    st.metric("RUL Predicted", f"{recent_rul:.1f}", delta=f"{rul_change:+.1f}")
+                else:
+                    st.metric("RUL Predicted", f"{recent_rul:.1f}", delta="-")
+            with col2:
+                if len(rul_data) > 1:
+                    st.metric("Last RUL", f"{last_rul}")
+                else:
+                    st.metric("Last RUL", "-")
+
+        fig = px.line(rul_data, x="prediction_time", y="rul_pred", title="RUL Prediction Trend")
         st.plotly_chart(fig, use_container_width=True)
-        latest_rul_value = rul_data["rul_pred"].iloc[-1] if not rul_data.empty else float('inf')
-        alert_threshold = 200
-        if latest_rul_value < alert_threshold:
-            st.warning(f"⚠️ Warning! RUL is below {alert_threshold} hours! Maintenance is recommended.", icon="⚠️")
-            st.markdown("### 📨 Email Alert Sent for Low RUL!")
-            send_email_alert(selected_machine, latest_rul_value)
-            chat_id = -1002671447415
-            telegram_message = (
-                f"⚠️ <b>Maintenance Alert</b>\n"
-                f"Machine {selected_machine} RUL is low!\n"
-                f"Current RUL: {latest_rul_value} hours"
-            )
-            send_telegram_alert(chat_id, telegram_message)
-        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Average RUL Over Time for All Machines
+        st.subheader("Average RUL Over Time Across All Machines")
+        @st.cache_data(ttl=60)
+        def get_average_rul_over_time():
+            query = "SELECT prediction_time, AVG(rul_pred) as avg_rul FROM predictions GROUP BY prediction_time ORDER BY prediction_time"
+            avg_rul_data = pd.read_sql(query, engine)
+            avg_rul_data["prediction_time"] = pd.to_datetime(avg_rul_data["prediction_time"])
+            return avg_rul_data
+        avg_rul_over_time = get_average_rul_over_time()
+        if not avg_rul_over_time.empty:
+            fig = px.line(avg_rul_over_time, x="prediction_time", y="avg_rul", title="Average RUL Over Time")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No RUL data available for average over time.")
+
+        # RUL Distribution Bar Chart
+        st.subheader("RUL Distribution Across Machines")
+        @st.cache_data(ttl=60)
+        def get_rul_distribution():
+            query = "SELECT machineid, rul_pred FROM predictions WHERE prediction_time = (SELECT MAX(prediction_time) FROM predictions)"
+            rul_dist = pd.read_sql(query, engine)
+            return rul_dist
+        rul_dist_data = get_rul_distribution()
+        if not rul_dist_data.empty:
+            fig = px.bar(rul_dist_data, x="machineid", y="rul_pred", title="RUL Distribution Across Machines")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No RUL data available for distribution.")
 
     # --------------------------- 
     # 🗓 Maintenance Scheduler
@@ -557,13 +527,12 @@ else:
             try:
                 with engine.connect() as conn:
                     conn.execute(text("""
-                        INSERT INTO maintenance_history (machineid, maintenance_date, maintenance_type, notes)
-                        VALUES (:machineid, :maintenance_date, :maintenance_type, :notes)
+                        INSERT INTO maintenance (datetime, machineid, comp)
+                        VALUES (:datetime, :machineid, :comp)
                     """), {
+                        "datetime": maintenance_date,
                         "machineid": selected_machine,
-                        "maintenance_date": maintenance_date,
-                        "maintenance_type": maintenance_type,
-                        "notes": notes
+                        "comp": maintenance_type
                     })
                     conn.commit()
                 st.success(f"Maintenance scheduled for Machine {selected_machine} on {maintenance_date}!")
@@ -571,7 +540,6 @@ else:
             except Exception as e:
                 st.error(f"Failed to schedule maintenance: {e}")
                 logger.error(f"Maintenance scheduling error: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 🛠 Assets
@@ -582,7 +550,7 @@ else:
         st.write("View and manage machine assets details.")
         st.subheader("Machine Details")
         try:
-            machines = pd.read_sql("SELECT * FROM machines", engine)
+            machines = pd.read_sql("SELECT machineid, model, age FROM machines", engine)
             if not machines.empty:
                 st.dataframe(machines)
             else:
@@ -593,19 +561,19 @@ else:
 
         st.subheader("Add New Machine")
         with st.form("add_machine_form"):
-            new_machine_id = st.text_input("Machine ID")
+            new_machine_id = st.number_input("Machine ID", min_value=0, step=1)
             model = st.text_input("Model")
-            location = st.text_input("Location")
+            age = st.number_input("Age", min_value=0, step=1)
             if st.form_submit_button("Add Machine"):
                 try:
                     with engine.connect() as conn:
                         conn.execute(text("""
-                            INSERT INTO machines (machineid, model, location)
-                            VALUES (:machineid, :model, :location)
+                            INSERT INTO machines (machineid, model, age)
+                            VALUES (:machineid, :model, :age)
                         """), {
                             "machineid": new_machine_id,
                             "model": model,
-                            "location": location
+                            "age": age
                         })
                         conn.commit()
                     st.success(f"Machine {new_machine_id} added successfully!")
@@ -613,7 +581,6 @@ else:
                 except Exception as e:
                     st.error(f"Failed to add machine: {e}")
                     logger.error(f"Machine addition error: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 📋 Work Orders
@@ -644,7 +611,6 @@ else:
             except Exception as e:
                 st.error(f"Failed to create work order: {e}")
                 logger.error(f"Work order creation error: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 📬 Order Requests
@@ -663,7 +629,6 @@ else:
         except Exception as e:
             st.error(f"Failed to load work orders: {e}")
             logger.error(f"Work orders loading error: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 📈 Reports
@@ -676,10 +641,10 @@ else:
         report_type = st.selectbox("Select Report Type", ["Maintenance History", "RUL Summary"])
         if report_type == "Maintenance History":
             try:
-                maintenance_data = pd.read_sql("SELECT machineid, maintenance_date, maintenance_type, notes FROM maintenance_history ORDER BY maintenance_date DESC", engine)
+                maintenance_data = pd.read_sql("SELECT machineid, datetime, comp FROM maintenance ORDER BY datetime DESC", engine)
                 if not maintenance_data.empty:
                     st.dataframe(maintenance_data)
-                    fig = px.histogram(maintenance_data, x="machineid", color="maintenance_type", title="Maintenance Actions by Machine")
+                    fig = px.histogram(maintenance_data, x="machineid", color="comp", title="Maintenance Actions by Machine")
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("No maintenance history available.")
@@ -698,20 +663,6 @@ else:
             except Exception as e:
                 st.error(f"Failed to load RUL data: {e}")
                 logger.error(f"RUL data loading error: {e}")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # --------------------------- 
-    # 👷 Management
-    # --------------------------- 
-    elif st.session_state.selected_menu == "Management 👷":
-        st.title("👷 Management")
-        
-        st.write("Manage teams, reports, and settings.")
-        st.subheader("Team Management")
-        st.write("Placeholder for team management functionality.")
-        st.subheader("Settings")
-        st.write("Placeholder for system settings.")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # 👤 Account
@@ -763,7 +714,6 @@ else:
                         logger.error(f"Password update error: {e}")
                 else:
                     st.error("Current password is incorrect.")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     # --------------------------- 
     # ⚙️ Configuration
@@ -779,54 +729,65 @@ else:
         if st.button("Save Threshold"):
             st.success(f"RUL Alert Threshold set to {alert_threshold} hours!")
             logger.info(f"RUL Alert Threshold updated to {alert_threshold}")
-        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.subheader("Email Settings")
+        new_alert_email = st.text_input("Alert Email Address", value=st.session_state.alert_email)
+        if st.button("Update Alert Email"):
+            if validate_email(new_alert_email):
+                st.session_state.alert_email = new_alert_email
+                st.success(f"Alert email updated to {new_alert_email}!")
+                logger.info(f"Alert email updated to {new_alert_email}")
+            else:
+                st.error("Please enter a valid email address.")
+                logger.warning(f"Invalid email attempt: {new_alert_email}")
 
     # --------------------------- 
-    # 🤖 AI Chat Assistant
+    # 🤖 AI Chat Assistant (only for other pages)
     # --------------------------- 
-    from mistral_query import build_prompt, query_mistral
-    components.html("""
-    <button id="chat-button" onclick="toggleChat()">💬</button>
-    <div id="chat-window">
-        <h4>🤖 AI Maintenance Assistant</h4>
-        <div id="chat-content"></div>
-    </div>
-    <script>
-    function toggleChat() {
-        var win = document.getElementById('chat-window');
-        if (win.style.display === 'none') {
-            win.style.display = 'block';
-        } else {
-            win.style.display = 'none';
+    if st.session_state.selected_menu not in ["Account 👤", "Configuration ⚙️"]:
+        from mistral_query import build_prompt, query_mistral
+        components.html("""
+        <button id="chat-button" onclick="toggleChat()">💬</button>
+        <div id="chat-window">
+            <h4>🤖 AI Maintenance Assistant</h4>
+            <div id="chat-content"></div>
+        </div>
+        <script>
+        function toggleChat() {
+            var win = document.getElementById('chat-window');
+            if (win.style.display === 'none') {
+                win.style.display = 'block';
+            } else {
+                win.style.display = 'none';
+            }
         }
-    }
-    </script>
-    """, height=0)
-    st.write("## AI Assistant Chatbot")
-    for sender, msg in st.session_state.chat_history:
-        align = "user" if sender == "user" else "assistant"
-        with st.chat_message(align):
-            st.markdown(msg)
-    user_input = st.chat_input("Type your question here")
-    def extract_machine_id(text):
-        match = re.search(r'\b(?:machine\s*)?(\d{1,6})\b', text, re.IGNORECASE)
-        return match.group(1) if match else None
-    if user_input:
-        st.session_state.chat_history.append(("user", user_input))
-        st.session_state.last_user_input = user_input
-        st.rerun()
-    if "last_user_input" in st.session_state:
-        user_input = st.session_state.last_user_input
-        del st.session_state.last_user_input
-        with st.spinner("🤖 Thinking..."):
-            machine_id = extract_machine_id(user_input)
-            try:
-                if machine_id:
-                    prompt = build_prompt(machine_id, user_input, engine)
-                else:
-                    prompt = build_prompt(None, user_input, engine)
-                answer = query_mistral(prompt)
-            except Exception as e:
-                answer = f"⚠️ Error: {e}"
-        st.session_state.chat_history.append(("assistant", answer))
-        st.rerun()
+        </script>
+        """, height=0)
+        st.write("## AI Assistant Chatbot")
+        for sender, msg in st.session_state.chat_history:
+            align = "user" if sender == "user" else "assistant"
+            with st.chat_message(align):
+                st.markdown(msg)
+        user_input = st.chat_input("Type your question here")
+        def extract_machine_id(text):
+            match = re.search(r'\b(?:machine\s*)?(\d{1,6})\b', text, re.IGNORECASE)
+            return match.group(1) if match else None
+        if user_input:
+            st.session_state.chat_history.append(("user", user_input))
+            st.session_state.last_user_input = user_input
+            st.session_state.rerun_trigger = True
+        if "last_user_input" in st.session_state:
+            user_input = st.session_state.last_user_input
+            del st.session_state.last_user_input
+            with st.spinner("🤖 Thinking..."):
+                machine_id = extract_machine_id(user_input)
+                try:
+                    if machine_id:
+                        prompt = build_prompt(machine_id, user_input, engine)
+                    else:
+                        prompt = build_prompt(None, user_input, engine)
+                    answer = query_mistral(prompt)
+                except Exception as e:
+                    answer = f"⚠️ Error: {e}"
+            st.session_state.chat_history.append(("assistant", answer))
+            st.session_state.rerun_trigger = True
