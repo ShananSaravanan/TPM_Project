@@ -8,7 +8,7 @@ from email.mime.multipart import MIMEMultipart
 import re
 import streamlit.components.v1 as components
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # --------------------------- 
 st.set_page_config(page_title="AIPM+ Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS for light mode, professional styling, and menu
+# Custom CSS for light mode, professional styling, and compact layout
 st.markdown("""
     <style>
     /* Force light mode */
@@ -34,7 +34,7 @@ st.markdown("""
     /* Sidebar styling */
     .css-1lcbmhc {
         background-color: #2c2f33;
-        padding: 10px;
+        padding: 8px;
     }
     .sidebar .sidebar-content {
         background-color: #2c2f33;
@@ -44,12 +44,12 @@ st.markdown("""
     button[data-testid="stButton"] {
         display: block;
         width: 100%;
-        padding: 10px 15px;
+        padding: 8px 12px;
         color: #ffffff;
         text-align: left;
         border: none;
         background: none;
-        font-size: 16px;
+        font-size: 14px;
         cursor: pointer;
         transition: background-color 0.3s;
     }
@@ -74,39 +74,67 @@ st.markdown("""
     /* Chat assistant styling */
     #chat-button {
         position: fixed;
-        bottom: 20px;
-        right: 20px;
+        bottom: 15px;
+        right: 15px;
         background-color: #007bff;
         color: white;
         border: none;
-        padding: 14px;
+        padding: 10px;
         border-radius: 50%;
-        font-size: 20px;
+        font-size: 16px;
         cursor: pointer;
         z-index: 9999;
     }
     #chat-window {
         display: none;
         position: fixed;
-        bottom: 80px;
-        right: 20px;
-        width: 350px;
-        max-height: 500px;
+        bottom: 60px;
+        right: 15px;
+        width: 300px;
+        max-height: 400px;
         background-color: #ffffff;
         border: 1px solid #ccc;
-        border-radius: 12px;
-        padding: 10px;
+        border-radius: 10px;
+        padding: 8px;
         overflow-y: auto;
         z-index: 9998;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.2);
     }
     /* Card styling for graphs */
     .card {
         background-color: #ffffff;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
+        padding: 10px;
+        border-radius: 8px;
+        box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+        margin-bottom: 10px;
+    }
+    /* Compact widget styling */
+    .stSelectbox, .stMultiSelect, .stDateInput {
+        font-size: 12px;
+        padding: 4px;
+    }
+    .stSelectbox > div > div > select,
+    .stMultiSelect > div > div > select {
+        padding: 4px;
+        height: 30px;
+    }
+    .stDateInput > div > div > input {
+        padding: 4px;
+        height: 30px;
+    }
+    .stMetric {
+        font-size: 12px;
+        margin-bottom: 5px;
+    }
+    .stMetric label {
+        font-size: 12px;
+    }
+    h2, h3, h4 {
+        margin: 5px 0;
+        font-size: 16px;
+    }
+    hr {
+        margin: 5px 0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -200,18 +228,16 @@ def login_user(username, password):
             result = conn.execute(text("""
                 SELECT password FROM users WHERE username = :username
             """), {"username": username_lower}).fetchone()
-            logger.debug(f"Login query for {username_lower} returned: {result}")
+            logger.debug(f"Login query for {username_lower} returned {result}")
             if result:
                 stored_password = result[0]
                 if password == stored_password:
                     logger.info(f"User {username_lower} logged in successfully")
                     return True
-                else:
-                    logger.warning(f"Invalid password for {username_lower}. Entered: {password}, Stored: {stored_password}")
-                    return False
-            else:
-                logger.warning(f"User {username_lower} not found")
+                logger.warning(f"Invalid password for {username_lower}")
                 return False
+            logger.warning(f"User {username_lower} not found")
+            return False
     except Exception as e:
         logger.error(f"Login error for {username_lower}: {e}")
         return False
@@ -224,13 +250,15 @@ if 'username' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'selected_menu' not in st.session_state:
-    st.session_state.selected_menu = None  # Set to None initially, will be set post-login
+    st.session_state.selected_menu = None
 if 'alert_email' not in st.session_state:
-    st.session_state.alert_email = "shanansaravanan03@gmail.com"  # Default email
+    st.session_state.alert_email = "shanansaravanan03@gmail.com"
 if 'rerun_trigger' not in st.session_state:
     st.session_state.rerun_trigger = False
+if 'alert_timestamps' not in st.session_state:
+    st.session_state.alert_timestamps = {}  # Track alert times per machine
 
-# Create tables (only new ones, no dropping existing tables)
+# Create tables
 create_users_table()
 create_work_orders_table()
 
@@ -253,10 +281,10 @@ if not st.session_state.logged_in:
                 elif login_user(username, password):
                     st.session_state.logged_in = True
                     st.session_state.username = username.lower()
-                    st.session_state.selected_menu = "Dashboard 📊"  # Set default menu after login
+                    st.session_state.selected_menu = "Dashboard 📊"
                     st.session_state.rerun_trigger = True
                 else:
-                    st.error("Invalid username or password. Please check your credentials.")
+                    st.error("Invalid username or password.")
                     logger.warning(f"Login attempt failed for {username.lower()}")
 
     else:  # Register
@@ -286,7 +314,7 @@ else:
     st.sidebar.markdown("<h3 style='color: black;'>AIPM+ System</h3>", unsafe_allow_html=True)
     st.sidebar.markdown(f"<h3 style='color: black;'>Welcome, {st.session_state.username}</h3>", unsafe_allow_html=True)
 
-    # Sidebar menu with buttons
+    # Sidebar menu
     menu_items = [
         "Dashboard 📊",
         "Live Telemetry 🔋",
@@ -300,7 +328,6 @@ else:
         "Configuration ⚙️"
     ]
 
-    # Set default menu if not set post-login
     if st.session_state.selected_menu is None:
         st.session_state.selected_menu = "Dashboard 📊"
 
@@ -319,7 +346,6 @@ else:
 
     st.sidebar.button("Logout", on_click=logout, key="Logout")
 
-    # Trigger rerun based on session state flag
     if st.session_state.rerun_trigger:
         st.session_state.rerun_trigger = False
         st.rerun()
@@ -334,17 +360,20 @@ else:
         try:
             response = requests.post(send_message_url, data=payload)
             if response.status_code == 200:
-                print(f"✅ Telegram alert sent to chat {chat_id}")
+                logger.info(f"Telegram alert sent to chat {chat_id}")
+                return True
             else:
-                print(f"❌ Telegram alert failed: {response.text}")
+                logger.error(f"Telegram alert failed: {response.text}")
+                return False
         except Exception as e:
-            print(f"❌ Exception sending telegram alert: {e}")
+            logger.error(f"Exception sending telegram alert: {e}")
+            return False
 
     def send_email_alert(machine_id, rul_value, recipient_email):
         sender_email = "shananmessi10@gmail.com"
         sender_password = "aswv tqus gstv wnfc"
         subject = f"⚠️ Maintenance Alert: Machine {machine_id} RUL Below Threshold"
-        body = f"Warning! The Remaining Useful Life (RUL) of Machine {machine_id} has dropped below the threshold.\n\nCurrent RUL: {rul_value} hours\nThreshold: {alert_threshold} hours"
+        body = f"Warning! The Remaining Useful Life (RUL) of Machine {machine_id} has dropped below the threshold.\n\nCurrent RUL: {rul_value:.1f} hours\nThreshold: 200 hours"
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = recipient_email
@@ -355,49 +384,114 @@ else:
                 server.starttls()
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
-            print(f"✅ Email alert sent to {recipient_email}")
+            logger.info(f"Email alert sent to {recipient_email} for Machine {machine_id}")
+            return True
         except Exception as e:
-            print(f"❌ Failed to send email: {e}")
+            logger.error(f"Failed to send email for Machine {machine_id}: {e}")
+            return False
+
+    def check_and_send_alerts(machine_id, rul_value):
+        """Check if RUL is below threshold and send alerts with cooldown."""
+        RUL_THRESHOLD = 200
+        COOLDOWN_HOURS = 24
+        current_time = datetime.now()
+        
+        # Initialize alert timestamps if not present
+        if machine_id not in st.session_state.alert_timestamps:
+            st.session_state.alert_timestamps[machine_id] = None
+        
+        # Check if alert was sent recently
+        last_alert = st.session_state.alert_timestamps[machine_id]
+        if last_alert and (current_time - last_alert) < timedelta(hours=COOLDOWN_HOURS):
+            logger.debug(f"Alert for Machine {machine_id} skipped due to cooldown")
+            return
+        
+        if rul_value < RUL_THRESHOLD:
+            # Send email alert
+            email_success = send_email_alert(machine_id, rul_value, st.session_state.alert_email)
+            # Send Telegram alert (using a default chat_id, replace with your own)
+            telegram_chat_id = "-1002671447415"  # Replace with actual chat ID
+            telegram_message = f"⚠️ Machine {machine_id} RUL Below Threshold: {rul_value:.1f} hours"
+            telegram_success = send_telegram_alert(telegram_chat_id, telegram_message)
+            
+            if email_success or telegram_success:
+                st.session_state.alert_timestamps[machine_id] = current_time
+                # st.warning(f"Alert sent for Machine {machine_id}: RUL {rul_value:.1f} hours")
+                logger.info(f"Alert triggered for Machine {machine_id}: RUL {rul_value:.1f}")
 
     # --------------------------- 
     # 📊 Dashboard
     # --------------------------- 
     if st.session_state.selected_menu == "Dashboard 📊":
         st.title("📊 Analytics Dashboard")
-        st.markdown("Comprehensive insights into machine health, performance, and maintenance needs.")
+        st.markdown("Insights into machine health and maintenance.", unsafe_allow_html=True)
 
-        # Filters
+        # Filter Machines
+        st.subheader("Filter Machines")
         col1, col2 = st.columns([3, 1])
         with col1:
             machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
-            selected_machines = st.multiselect("Filter Machines", machine_ids, default=machine_ids[:5])
+            selected_machines = st.multiselect("Select Machines", machine_ids, default=machine_ids[:5])
         with col2:
             date_range = st.date_input("Select Date Range", [datetime.now().date(), datetime.now().date()])
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-        # Summary Metrics
-        col1, col2, col3 = st.columns(3)
+        # Summary Metrics, Correlation Analysis, and Maintenance History
+        col1, col2, col3 = st.columns([2, 3, 3])
         with col1:
-            critical_machines = len(pd.read_sql("SELECT DISTINCT machineid FROM predictions WHERE rul_pred < 200", engine))
-            st.metric("Critical Machines", critical_machines, delta=-1)
+            st.subheader("Summary Metrics")
+            col1a, col1b, col1c = st.columns(3)
+            with col1a:
+                critical_machines = len(pd.read_sql("SELECT DISTINCT machineid FROM predictions WHERE rul_pred < 200", engine))
+                st.metric("Critical Machines", critical_machines, delta=-1)
+            with col1b:
+                avg_rul = pd.read_sql("SELECT AVG(rul_pred) as avg_rul FROM predictions", engine)["avg_rul"].iloc[0]
+                st.metric("Avg RUL (Hours)", f"{avg_rul:.1f}", delta=10)
+            with col1c:
+                total_machines = len(pd.read_sql("SELECT DISTINCT machineid FROM machines", engine))
+                st.metric("Total Machines", total_machines)
         with col2:
-            avg_rul = pd.read_sql("SELECT AVG(rul_pred) as avg_rul FROM predictions", engine)["avg_rul"].iloc[0]
-            st.metric("Average RUL (Hours)", f"{avg_rul:.1f}", delta=10)
+            st.subheader("Correlation Analysis")
+            if selected_machines:
+                placeholders = ", ".join(["%s" for _ in selected_machines])
+                query = f"SELECT volt, rotate, pressure, vibration FROM telemetry WHERE machineid IN ({placeholders})"
+                telemetry = pd.read_sql(query, engine, params=tuple(selected_machines))
+                corr_matrix = telemetry.corr()
+                fig = px.imshow(corr_matrix, text_auto=True, title="Correlation Heatmap")
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, height=200)
+            else:
+                st.info("No machines selected.")
         with col3:
-            total_machines = len(pd.read_sql("SELECT DISTINCT machineid FROM machines", engine))
-            st.metric("Total Machines", total_machines)
+            st.subheader("Maintenance History")
+            if selected_machines:
+                placeholders = ", ".join(["%s" for _ in selected_machines])
+                query = f"SELECT machineid, datetime, comp FROM maintenance WHERE machineid IN ({placeholders})"
+                maintenance_data = pd.read_sql(query, engine, params=tuple(selected_machines))
+                if not maintenance_data.empty:
+                    fig = px.histogram(maintenance_data, x="machineid", color="comp", title="Maintenance Actions")
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, height=200)
+                else:
+                    st.info("No maintenance history.")
+            else:
+                st.info("No machines selected.")
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-        # Machine Health Score Gauge
-        st.subheader("Machine Health Scores")
+        # Machine Selection for Health Score
+        st.subheader("Select Machine")
         health_scores = pd.read_sql("SELECT machineid, rul_pred FROM predictions WHERE prediction_time = (SELECT MAX(prediction_time) FROM predictions)", engine)
         health_scores["health_score"] = 100 * (health_scores["rul_pred"] / health_scores["rul_pred"].max())
-        col1, col2 = st.columns([1, 2])
+        selected_machine = st.selectbox("Choose Machine", health_scores["machineid"])
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # Health Score, Health Graph, and Risk Trend
+        col1, col2, col3 = st.columns(3)
         with col1:
-            selected_machine = st.selectbox("Select Machine for Health Score", health_scores["machineid"])
+            st.subheader("Health Score")
             score = health_scores[health_scores["machineid"] == selected_machine]["health_score"].iloc[0]
             fig = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=score,
-                title={'text': f"Health Score: Machine {selected_machine}"},
+                title={'text': f"Machine {selected_machine}"},
                 gauge={'axis': {'range': [0, 100]},
                        'bar': {'color': "#007bff"},
                        'steps': [
@@ -405,43 +499,17 @@ else:
                            {'range': [30, 70], 'color': "orange"},
                            {'range': [70, 100], 'color': "green"}
                        ]}))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, height=200)
         with col2:
-            fig = px.bar(health_scores, x="machineid", y="health_score", title="Health Scores Across Machines")
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Failure Risk Trend
-        st.subheader("Failure Risk Trend")
-        rul_data = pd.read_sql("SELECT prediction_time, AVG(rul_pred) as avg_rul FROM predictions GROUP BY prediction_time ORDER BY prediction_time", engine)
-        rul_data["failure_risk"] = 100 * (1 - rul_data["avg_rul"] / rul_data["avg_rul"].max())
-        fig = px.line(rul_data, x="prediction_time", y="failure_risk", title="Average Failure Risk Over Time")
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Telemetry Correlation Heatmap
-        st.subheader("Telemetry Correlation Analysis")
-        if selected_machines:
-            placeholders = ", ".join(["%s" for _ in selected_machines])
-            query = f"SELECT volt, rotate, pressure, vibration FROM telemetry WHERE machineid IN ({placeholders})"
-            telemetry = pd.read_sql(query, engine, params=tuple(selected_machines))
-            corr_matrix = telemetry.corr()
-            fig = px.imshow(corr_matrix, text_auto=True, title="Correlation Heatmap of Telemetry Metrics")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No machines selected for correlation analysis.")
-
-        # Maintenance History
-        st.subheader("Maintenance History")
-        if selected_machines:
-            placeholders = ", ".join(["%s" for _ in selected_machines])
-            query = f"SELECT machineid, datetime, comp FROM maintenance WHERE machineid IN ({placeholders})"
-            maintenance_data = pd.read_sql(query, engine, params=tuple(selected_machines))
-            if not maintenance_data.empty:
-                fig = px.histogram(maintenance_data, x="machineid", color="comp", title="Maintenance Actions by Machine")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No maintenance history available. Schedule maintenance to populate this chart.")
-        else:
-            st.info("No machines selected for maintenance history.")
+            st.subheader("Health Scores")
+            fig = px.bar(health_scores, x="machineid", y="health_score", title="All Machines")
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, height=200)
+        with col3:
+            st.subheader("Failure Risk")
+            rul_data = pd.read_sql("SELECT prediction_time, AVG(rul_pred) as avg_rul FROM predictions GROUP BY prediction_time ORDER BY prediction_time", engine)
+            rul_data["failure_risk"] = 100 * (1 - rul_data["avg_rul"] / rul_data["avg_rul"].max())
+            fig = px.line(rul_data, x="prediction_time", y="failure_risk", title="Risk Trend")
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False}, height=200)
 
     # --------------------------- 
     # 🔋 Live Telemetry
@@ -478,6 +546,8 @@ else:
         rul_data = get_rul_data(selected_machine)
         if not rul_data.empty:
             recent_rul = rul_data.iloc[0]["rul_pred"]
+            # Check and send alerts for selected machine
+            check_and_send_alerts(selected_machine, recent_rul)
             col1, col2 = st.columns(2)
             with col1:
                 if len(rul_data) > 1:
@@ -495,8 +565,7 @@ else:
         fig = px.line(rul_data, x="prediction_time", y="rul_pred", title="RUL Prediction Trend")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Average RUL Over Time for All Machines
-        st.subheader("Average RUL Over Time Across All Machines")
+        st.subheader("Average RUL Over Time")
         @st.cache_data(ttl=60)
         def get_average_rul_over_time():
             query = "SELECT prediction_time, AVG(rul_pred) as avg_rul FROM predictions GROUP BY prediction_time ORDER BY prediction_time"
@@ -508,10 +577,9 @@ else:
             fig = px.line(avg_rul_over_time, x="prediction_time", y="avg_rul", title="Average RUL Over Time")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No RUL data available for average over time.")
+            st.info("No RUL data available.")
 
-        # RUL Distribution Bar Chart
-        st.subheader("RUL Distribution Across Machines")
+        st.subheader("RUL Distribution")
         @st.cache_data(ttl=60)
         def get_rul_distribution():
             query = "SELECT machineid, rul_pred FROM predictions WHERE prediction_time = (SELECT MAX(prediction_time) FROM predictions)"
@@ -519,18 +587,20 @@ else:
             return rul_dist
         rul_dist_data = get_rul_distribution()
         if not rul_dist_data.empty:
-            fig = px.bar(rul_dist_data, x="machineid", y="rul_pred", title="RUL Distribution Across Machines")
+            # Check and send alerts for all machines in distribution
+            for _, row in rul_dist_data.iterrows():
+                check_and_send_alerts(row["machineid"], row["rul_pred"])
+            fig = px.bar(rul_dist_data, x="machineid", y="rul_pred", title="RUL Distribution")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No RUL data available for distribution.")
+            st.info("No RUL data available.")
 
     # --------------------------- 
     # 🗓 Maintenance Scheduler
     # --------------------------- 
     elif st.session_state.selected_menu == "Maintenance Scheduler 🗓":
         st.title("🗓 Maintenance Scheduler")
-        
-        st.write("Schedule maintenance tasks for machines.")
+        st.write("Schedule maintenance tasks.")
         machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
         selected_machine = st.selectbox("Select Machine", machine_ids)
         maintenance_date = st.date_input("Maintenance Date", datetime.now())
@@ -559,15 +629,14 @@ else:
     # --------------------------- 
     elif st.session_state.selected_menu == "Assets 🛠":
         st.title("🛠 Assets Management")
-        
-        st.write("View and manage machine assets details.")
+        st.write("View and manage machine assets.")
         st.subheader("Machine Details")
         try:
             machines = pd.read_sql("SELECT machineid, model, age FROM machines", engine)
             if not machines.empty:
                 st.dataframe(machines)
             else:
-                st.info("No machine details available in the database.")
+                st.info("No machine details available.")
         except Exception as e:
             st.error(f"Failed to load machine details: {e}")
             logger.error(f"Machine details loading error: {e}")
@@ -600,8 +669,7 @@ else:
     # --------------------------- 
     elif st.session_state.selected_menu == "Work Orders 📋":
         st.title("📋 Work Orders Management")
-        
-        st.write("Manage work orders for maintenance tasks.")
+        st.write("Manage work orders.")
         st.subheader("Create Work Order")
         machine_ids = pd.read_sql("SELECT DISTINCT machineid FROM predictions", engine)["machineid"].tolist()
         selected_machine = st.selectbox("Select Machine", machine_ids)
@@ -630,8 +698,7 @@ else:
     # --------------------------- 
     elif st.session_state.selected_menu == "Order Requests 📬":
         st.title("📬 Order Requests")
-        
-        st.write("View all requested work orders.")
+        st.write("View all work orders.")
         st.subheader("Work Orders List")
         try:
             work_orders = pd.read_sql("SELECT id, machineid, task_description, priority, status, created_at FROM work_orders ORDER BY created_at DESC", engine)
@@ -648,8 +715,7 @@ else:
     # --------------------------- 
     elif st.session_state.selected_menu == "Reports 📈":
         st.title("📈 Reports")
-        
-        st.write("Generate and view maintenance reports.")
+        st.write("Generate maintenance reports.")
         st.subheader("Maintenance Report")
         report_type = st.selectbox("Select Report Type", ["Maintenance History", "RUL Summary"])
         if report_type == "Maintenance History":
@@ -657,7 +723,7 @@ else:
                 maintenance_data = pd.read_sql("SELECT machineid, datetime, comp FROM maintenance ORDER BY datetime DESC", engine)
                 if not maintenance_data.empty:
                     st.dataframe(maintenance_data)
-                    fig = px.histogram(maintenance_data, x="machineid", color="comp", title="Maintenance Actions by Machine")
+                    fig = px.histogram(maintenance_data, x="machineid", color="comp", title="Maintenance Actions")
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("No maintenance history available.")
@@ -669,7 +735,7 @@ else:
                 rul_data = pd.read_sql("SELECT machineid, rul_pred, prediction_time FROM predictions WHERE prediction_time = (SELECT MAX(prediction_time) FROM predictions)", engine)
                 if not rul_data.empty:
                     st.dataframe(rul_data)
-                    fig = px.bar(rul_data, x="machineid", y="rul_pred", title="Current RUL by Machine")
+                    fig = px.bar(rul_data, x="machineid", y="rul_pred", title="Current RUL")
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("No RUL predictions available.")
@@ -682,8 +748,7 @@ else:
     # --------------------------- 
     elif st.session_state.selected_menu == "Account 👤":
         st.title("👤 Account Settings")
-        
-        st.write("Manage your account details.")
+        st.write("Manage your account.")
         st.subheader("User Information")
         try:
             with engine.connect() as conn:
@@ -733,10 +798,7 @@ else:
     # --------------------------- 
     elif st.session_state.selected_menu == "Configuration ⚙️":
         st.title("⚙️ Configuration")
-        
-        st.write("Configure system settings and parameters.")
-        st.subheader("General Settings")
-        st.write("Placeholder for general configuration options.")
+        st.write("Configure system settings.")
         st.subheader("Alert Thresholds")
         alert_threshold = st.number_input("RUL Alert Threshold (hours)", min_value=0, value=200)
         if st.button("Save Threshold"):
@@ -755,7 +817,7 @@ else:
                 logger.warning(f"Invalid email attempt: {new_alert_email}")
 
     # --------------------------- 
-    # 🤖 AI Chat Assistant (only for other pages)
+    # 🤖 AI Chat Assistant
     # --------------------------- 
     if st.session_state.selected_menu not in ["Account 👤", "Configuration ⚙️"]:
         from mistral_query import build_prompt, query_mistral
