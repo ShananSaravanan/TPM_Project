@@ -7,3 +7,4 @@ xgboost
 joblib
 scikit-learn
 numpy
+plotly
