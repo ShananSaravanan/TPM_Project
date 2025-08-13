@@ -260,9 +260,9 @@ if 'rerun_trigger' not in st.session_state:
 if 'alert_timestamps' not in st.session_state:
     st.session_state.alert_timestamps = {}  # Track alert times per machine
 
-# Create tables
-create_users_table()
-create_work_orders_table()
+# # Create tables
+# create_users_table()
+# create_work_orders_table()
 
 # --------------------------- 
 # 🔐 Login/Register Page
