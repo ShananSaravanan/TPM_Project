@@ -139,9 +139,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+db_url = st.secrets["db_url"]
+
 # Database connection
 try:
-    engine = create_engine("postgresql://postgres:BigRoot@123@@db.gwvaqtikukibtwmtbpar.supabase.co:5432/postgres")
+    engine = create_engine(db_url)
     logger.info("Database engine initialized successfully")
 except Exception as e:
     st.error(f"Failed to connect to database: {str(e)}")

@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 import uvicorn
 import logging
-
+import streamlit as st
 # Initialize app and logging
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
@@ -19,16 +19,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# PostgreSQL connection
-db_config = {
-    'host': 'db.gwvaqtikukibtwmtbpar.supabase.co',
-    'port': '5432',
-    'database': 'postgres',
-    'user': 'postgres',
-    'password': 'BigRoot@123@'
-}
-conn_str = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
-engine = create_engine(conn_str)
+db_url = st.secrets["db_url"]
+
+engine = create_engine(db_url)
+# # PostgreSQL connection
+# db_config = {
+#     'host': 'db.gwvaqtikukibtwmtbpar.supabase.co',
+#     'port': '5432',
+#     'database': 'postgres',
+#     'user': 'postgres',
+#     'password': 'BigRoot@123@'
+# }
+# conn_str = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
+# engine = create_engine(conn_str)
 
 @app.post("/telemetry")
 async def receive_telemetry(request: Request):

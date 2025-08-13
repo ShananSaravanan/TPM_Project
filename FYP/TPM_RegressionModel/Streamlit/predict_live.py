@@ -4,9 +4,11 @@ from sqlalchemy import create_engine
 from datetime import datetime
 import time
 from model_predictor import predict_rul
+import streamlit as st
 
-engine = create_engine("postgresql://postgres:[YOUR-PASSWORD]@db.gwvaqtikukibtwmtbpar.supabase.co:5432/postgres")
+db_url = st.secrets["db_url"]
 
+engine = create_engine(db_url)
 def compute_derived_features(data):
     # Ensure datetime is in a consistent format
     data['datetime'] = pd.to_datetime(data['datetime'])
