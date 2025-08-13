@@ -13,6 +13,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 import time
+import os
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -147,7 +148,8 @@ logger = logging.getLogger(__name__)
 @st.cache_resource
 def get_engine():
     try:
-        engine = create_engine(st.secrets["db_url"])
+        db_url = os.environ.get("db_url")
+        engine = create_engine(db_url)
         logger.info("✅ Database engine initialized successfully")
         return engine
     except Exception as e:

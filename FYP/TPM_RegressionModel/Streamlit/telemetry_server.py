@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 import uvicorn
 import logging
-import streamlit as st
+import os
 # Initialize app and logging
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
@@ -19,9 +19,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-db_url = st.secrets["db_url"]
-
+db_url = os.environ.get("db_url")
 engine = create_engine(db_url)
+
 # # PostgreSQL connection
 # db_config = {
 #     'host': 'db.gwvaqtikukibtwmtbpar.supabase.co',
