@@ -141,7 +141,7 @@ st.markdown("""
 
 # Database connection
 try:
-    engine = create_engine("postgresql://postgres:root@localhost:5433/AzureTPMDB")
+    engine = create_engine("test")
     logger.info("Database engine initialized successfully")
 except Exception as e:
     st.error(f"Failed to connect to database: {str(e)}")
