@@ -139,24 +139,30 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-db_url = st.secrets["db_url"]
+# --- Setup logger ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Database connection
-try:
-    engine = create_engine(db_url)
-    logger.info("Database engine initialized successfully")
-except Exception as e:
-    st.error(f"Failed to connect to database: {str(e)}")
-    logger.error(f"Database connection error: {e}")
-    raise e
+# --- Cache the database engine so it's not recreated on every rerun ---
+@st.cache_resource
+def get_engine():
+    try:
+        engine = create_engine(st.secrets["db_url"])
+        logger.info("✅ Database engine initialized successfully")
+        return engine
+    except Exception as e:
+        st.error(f"Failed to connect to database: {e}")
+        logger.error(f"Database connection error: {e}")
+        raise e
 
-# --------------------------- 
-# 🔐 Authentication Setup
-# --------------------------- 
+# Get the cached engine
+engine = get_engine()
+
+# --- Example: Create users table ---
 def create_users_table():
     """Create users table if it doesn't exist."""
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:  # begin() auto-commits
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
@@ -166,30 +172,32 @@ def create_users_table():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """))
-            conn.commit()
-            logger.info("Users table created or verified")
+        logger.info("✅ Users table created or verified")
     except Exception as e:
         logger.error(f"Failed to create users table: {e}")
         st.error(f"Database error: {e}")
 
+# --- Example: Create work orders table ---
 def create_work_orders_table():
-    """Create work orders table if it doesn't exist."""
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS work_orders (
                     id SERIAL PRIMARY KEY,
-                    machineid INTEGER NOT NULL,
-                    task_description TEXT NOT NULL,
-                    priority VARCHAR(20) NOT NULL,
-                    status VARCHAR(20) DEFAULT 'Pending',
+                    title VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    status VARCHAR(50) DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """))
-            conn.commit()
-            logger.info("Work orders table created or verified")
+        logger.info("✅ Work orders table created or verified")
     except Exception as e:
         logger.error(f"Failed to create work orders table: {e}")
+        st.error(f"Database error: {e}")
+
+# --- Initialize tables ---
+create_users_table()
+create_work_orders_table()
 
 def validate_email(email):
     """Validate email format."""
