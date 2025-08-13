@@ -141,7 +141,7 @@ st.markdown("""
 
 # Database connection
 try:
-    engine = create_engine("test")
+    engine = create_engine("postgresql://postgres:[BigRoot@123@]@db.gwvaqtikukibtwmtbpar.supabase.co:5432/postgres")
     logger.info("Database engine initialized successfully")
 except Exception as e:
     st.error(f"Failed to connect to database: {str(e)}")

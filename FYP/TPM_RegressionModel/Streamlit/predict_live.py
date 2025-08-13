@@ -5,7 +5,7 @@ from datetime import datetime
 import time
 from model_predictor import predict_rul
 
-engine = create_engine("postgresql://postgres:root@localhost:5433/AzureTPMDB")
+engine = create_engine("postgresql://postgres:[YOUR-PASSWORD]@db.gwvaqtikukibtwmtbpar.supabase.co:5432/postgres")
 
 def compute_derived_features(data):
     # Ensure datetime is in a consistent format

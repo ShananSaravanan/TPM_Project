@@ -21,11 +21,11 @@ app.add_middleware(
 
 # PostgreSQL connection
 db_config = {
-    'host': 'localhost',
-    'port': '5433',
-    'database': 'AzureTPMDB',
+    'host': 'db.gwvaqtikukibtwmtbpar.supabase.co',
+    'port': '5432',
+    'database': 'postgres',
     'user': 'postgres',
-    'password': 'root'
+    'password': 'BigRoot@123@'
 }
 conn_str = f"postgresql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}"
 engine = create_engine(conn_str)
